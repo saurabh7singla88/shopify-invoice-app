@@ -83,7 +83,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // Invoke invoice generation Lambda
     try {
       const invokeParams = {
-        FunctionName: process.env.INVOICE_LAMBDA_NAME || "pg-generate-invoice",
+        FunctionName: process.env.INVOICE_LAMBDA_NAME || "shopify-generate-invoice",
         InvocationType: "Event" as const, // Asynchronous invocation
         Payload: JSON.stringify(payload),
       };

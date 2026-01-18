@@ -141,10 +141,19 @@
               "Statement": [
                 {
                   "Effect": "Allow",
-                  "Action": ["s3:GetObject", "s3:PutObject"],
+                  "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
                   "Resource": [
                     {
                       "Fn::Sub": "${AssetsBucket.Arn}/*"
+                    }
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:ListBucket"],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "${AssetsBucket.Arn}"
                     }
                   ]
                 }
@@ -188,7 +197,8 @@
             "SHOPIFY_API_SECRET": { "Ref": "ShopifyApiSecret" },
             "SHOPIFY_APP_URL": { "Ref": "ShopifyAppUrl" },
             "SCOPES": { "Ref": "Scopes" },
-            "DYNAMODB_SESSION_TABLE": { "Ref": "DynamoDBSessionTable" }
+            "DYNAMODB_SESSION_TABLE": { "Ref": "DynamoDBSessionTable" },
+            "S3_BUCKET_NAME": { "Ref": "AssetsBucket" }
           }
         }
       }
