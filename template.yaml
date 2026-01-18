@@ -1,0 +1,290 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Shopify Invoice App - Serverless Deployment
+
+Parameters:
+  AppName:
+    Type: String
+    Default: shopify-invoice-app
+    Description: Name of the application
+  
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - development
+      - staging
+      - production
+    Description: Environment name
+  
+  ShopifyApiKey:
+    Type: String
+    NoEcho: true
+    Description: Shopify API Key
+  
+  ShopifyApiSecret:
+    Type: String
+    NoEcho: true
+    Description: Shopify API Secret
+  
+  ShopifyAppUrl:
+    Type: String
+    Description: Shopify App URL (e.g., https://your-api-gateway-url.execute-api.region.amazonaws.com)
+  
+  DynamoDBSessionTable:
+    Type: String
+    Default: shopify_sessions
+    Description: DynamoDB table name for session storage
+  
+  Scopes:
+    Type: String
+    Default: "read_orders,write_orders"
+    Description: Comma-separated list of Shopify API scopes
+
+Resources:
+  # S3 Bucket for static assets
+  AssetsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AppName}-assets-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - HEAD
+            AllowedOrigins:
+              - "*"
+            MaxAge: 3600
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+
+  # S3 Bucket Policy
+  AssetsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AssetsBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${AssetsBucket.Arn}/*"
+
+  # CloudFront Distribution for S3 assets
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${AppName} Static Assets CDN"
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          Compress: true
+          DefaultTTL: 31536000
+          MaxTTL: 31536000
+          MinTTL: 0
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt AssetsBucket.DomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+  # DynamoDB Table for Sessions
+  SessionTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref DynamoDBSessionTable
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: shop
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: shop_index
+          KeySchema:
+            - AttributeName: shop
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      TimeToLiveSpecification:
+        AttributeName: expires
+        Enabled: true
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt SessionTable.Arn
+                  - !Sub "${SessionTable.Arn}/index/*"
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub "${AssetsBucket.Arn}/*"
+
+  # Lambda Function
+  ShopifyAppFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Ref AppName
+      Runtime: nodejs20.x
+      Handler: server.lambda.lambdaHandler
+      CodeUri: ./lambda-deployment.zip
+      MemorySize: 1024
+      Timeout: 30
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          NODE_ENV: !Ref Environment
+          SHOPIFY_API_KEY: !Ref ShopifyApiKey
+          SHOPIFY_API_SECRET: !Ref ShopifyApiSecret
+          SHOPIFY_APP_URL: !Ref ShopifyAppUrl
+          SCOPES: !Ref Scopes
+          DYNAMODB_SESSION_TABLE: !Ref DynamoDBSessionTable
+          AWS_REGION: !Ref AWS::Region
+          ASSETS_URL: !Sub "https://${CloudFrontDistribution.DomainName}/assets"
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+  # HTTP API Gateway
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub "${AppName}-api"
+      Description: API Gateway for Shopify Invoice App
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowHeaders:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        MaxAge: 600
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 100
+        ThrottlingRateLimit: 50
+
+  # Lambda Function URL (Alternative to API Gateway)
+  ShopifyAppFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !GetAtt ShopifyAppFunction.Arn
+      Cors:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - "*"
+        AllowHeaders:
+          - "*"
+        MaxAge: 600
+
+  # Permission for Function URL
+  ShopifyAppFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ShopifyAppFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+Outputs:
+  ApiGatewayUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  
+  FunctionUrl:
+    Description: Lambda Function URL (alternative endpoint)
+    Value: !GetAtt ShopifyAppFunctionUrl.FunctionUrl
+  
+  CloudFrontUrl:
+    Description: CloudFront distribution URL for static assets
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}"
+  
+  AssetsBucketName:
+    Description: S3 bucket name for static assets
+    Value: !Ref AssetsBucket
+  
+  SessionTableName:
+    Description: DynamoDB table name for sessions
+    Value: !Ref SessionTable
+  
+  LambdaFunctionArn:
+    Description: Lambda Function ARN
+    Value: !GetAtt ShopifyAppFunction.Arn
+
+  NextSteps:
+    Description: Next steps after deployment
+    Value: |
+      1. Use the ApiGatewayUrl or FunctionUrl as your SHOPIFY_APP_URL
+      2. Deploy your code using: ./deploy.ps1 -BucketName <AssetsBucketName>
+      3. Update your Shopify app configuration with the new URL
+      4. Test the deployment

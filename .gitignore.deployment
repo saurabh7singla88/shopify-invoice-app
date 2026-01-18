@@ -1,0 +1,40 @@
+# Lambda deployment artifacts
+lambda-deployment.zip
+deploy-lambda/
+aws-outputs.json
+
+# Build artifacts
+build/
+dist/
+
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+coverage/
+
+# Prisma
+prisma/dev.db*
+
+# Misc
+*.tsbuildinfo

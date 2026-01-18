@@ -1,0 +1,79 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "DynamoDB table for Shopify OAuth session storage",
+  "Parameters": {
+    "TableName": {
+      "Type": "String",
+      "Default": "shopify_sessions",
+      "Description": "Name of the DynamoDB table for session storage"
+    }
+  },
+  "Resources": {
+    "ShopifySessionsTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": {
+          "Ref": "TableName"
+        },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "id",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "shop",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "id",
+            "KeyType": "HASH"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "shop_index",
+            "KeySchema": [
+              {
+                "AttributeName": "shop",
+                "KeyType": "HASH"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": "Shopify-Invoice-App"
+          },
+          {
+            "Key": "Purpose",
+            "Value": "Session-Storage"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "TableName": {
+      "Description": "Name of the DynamoDB table",
+      "Value": {
+        "Ref": "ShopifySessionsTable"
+      }
+    },
+    "TableArn": {
+      "Description": "ARN of the DynamoDB table",
+      "Value": {
+        "Fn::GetAtt": [
+          "ShopifySessionsTable",
+          "Arn"
+        ]
+      }
+    }
+  }
+}
