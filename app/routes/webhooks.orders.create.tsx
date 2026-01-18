@@ -2,9 +2,11 @@ import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import dynamodb from "../db.server";
 import { PutCommand } from "@aws-sdk/lib-dynamodb";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 
 const TABLE_NAME = process.env.ORDERS_TABLE_NAME || "ShopifyOrders";
+const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || "us-east-1" });
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   console.log("Order create webhook received");
@@ -78,9 +80,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`Order stored successfully: ${eventId}`);
 
-    // TODO: Optionally invoke invoice generation Lambda here
-    // You can use AWS Lambda SDK to invoke the invoice generation function
-    // similar to the logic in lambda-shopify-orderCreated.mjs
+    // Invoke invoice generation Lambda
+    try {
+      const invokeParams = {
+        FunctionName: process.env.INVOICE_LAMBDA_NAME || "pg-generate-invoice",
+        InvocationType: "Event" as const, // Asynchronous invocation
+        Payload: JSON.stringify(payload),
+      };
+
+      await lambdaClient.send(new InvokeCommand(invokeParams));
+      console.log("Invoice generation Lambda invoked successfully");
+    } catch (invokeError) {
+      console.error("Error invoking invoice Lambda:", invokeError);
+      // Continue even if invoice generation fails
+    }
 
     return new Response(
       JSON.stringify({

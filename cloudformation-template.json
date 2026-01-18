@@ -125,6 +125,9 @@
                     },
                     {
                       "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBSessionTable}/index/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ShopifyOrders"
                     }
                   ]
                 }
@@ -143,6 +146,21 @@
                     {
                       "Fn::Sub": "${AssetsBucket.Arn}/*"
                     }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "LambdaInvokeAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": ["lambda:InvokeFunction"],
+                  "Resource": [
+                    {"Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:shopify-generate-invoice"} 
                   ]
                 }
               ]
