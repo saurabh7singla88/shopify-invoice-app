@@ -21,7 +21,13 @@ api_version = "2026-04"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,read_orders"
+scopes = "read_orders"
+# Required for token exchange authentication strategy (unstable_newEmbeddedAuthStrategy)
+use_legacy_install_flow = false
 
 [auth]
-redirect_urls = [ "https://b2d6rmict3.execute-api.us-east-1.amazonaws.com/api/auth" ]
+redirect_urls = [
+  "https://b2d6rmict3.execute-api.us-east-1.amazonaws.com/auth/callback",
+  "https://b2d6rmict3.execute-api.us-east-1.amazonaws.com/auth/shopify/callback",
+  "https://b2d6rmict3.execute-api.us-east-1.amazonaws.com/api/auth"
+]

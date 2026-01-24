@@ -36,6 +36,12 @@ function createRequest(event) {
   const queryString = event.rawQueryString || "";
   
   const url = `${protocol}://${host}${path}${queryString ? `?${queryString}` : ""}`;
+  
+  console.log("Processing Request:", {
+    url,
+    method: event.requestContext?.http?.method || event.httpMethod || "GET",
+    headersKeys: Object.keys(headers),
+  });
 
   // Convert headers to Headers object
   const requestHeaders = new Headers();
@@ -44,6 +50,25 @@ function createRequest(event) {
       requestHeaders.append(key, Array.isArray(value) ? value.join(", ") : value);
     }
   }
+
+  // Handle cookies (API Gateway Payload 2.0)
+  if (event.cookies && Array.isArray(event.cookies)) {
+    requestHeaders.append("Cookie", event.cookies.join("; "));
+    console.log("Cookies found in event:", event.cookies.length);
+  } else {
+    // Fallback: Check if cookies were in the headers (common in local testing or different payload versions)
+    const headerCookie = headers['cookie'] || headers['Cookie'];
+    if (headerCookie) {
+       console.log("Cookies found in headers (fallback)");
+       // Note: They were likely added in the loop above, but we log for confirmation
+    } else {
+       console.log("No cookies in event or headers");
+    }
+  }
+
+  // Debug Authorization Header
+  const authHeader = headers['authorization'] || headers['Authorization'];
+  console.log("Authorization Header Present:", !!authHeader);
 
   // Handle body
   let requestBody = null;
@@ -70,16 +95,37 @@ function createRequest(event) {
  */
 async function createResponse(response) {
   const headers = {};
+  const cookies = [];
+
+  // Handle cookies
+  // Use getSetCookie() if available (Node.js 18.14.1+) to correctly handle multiple Set-Cookie headers
+  if (typeof response.headers.getSetCookie === 'function') {
+    const setCookies = response.headers.getSetCookie();
+    if (setCookies && setCookies.length > 0) {
+      cookies.push(...setCookies);
+    }
+  }
+
   response.headers.forEach((value, key) => {
-    headers[key] = value;
+    // Skip Set-Cookie in headers as it's handled via cookies array for API Gateway v2
+    if (key.toLowerCase() !== 'set-cookie') {
+      headers[key] = value;
+    }
   });
+
+  // Fallback for older environments if getSetCookie is missing
+  if (cookies.length === 0 && response.headers.get('set-cookie')) {
+    cookies.push(response.headers.get('set-cookie'));
+  }
 
   let body;
   const contentType = headers["content-type"] || "";
   
   if (contentType.includes("application/json") || 
       contentType.includes("text/") ||
-      contentType.includes("application/javascript")) {
+      contentType.includes("application/javascript") ||
+      contentType.includes("application/xml") ||
+      contentType.includes("image/svg+xml")) {
     body = await response.text();
   } else {
     const buffer = await response.arrayBuffer();
@@ -87,6 +133,7 @@ async function createResponse(response) {
     return {
       statusCode: response.status,
       headers,
+      cookies,
       body,
       isBase64Encoded: true,
     };
@@ -95,6 +142,7 @@ async function createResponse(response) {
   return {
     statusCode: response.status,
     headers,
+    cookies,
     body,
     isBase64Encoded: false,
   };
@@ -133,6 +181,28 @@ export const lambdaHandler = async (event, context) => {
     const apiGatewayResponse = await createResponse(response);
 
     console.log("Response Status:", apiGatewayResponse.statusCode);
+    if (apiGatewayResponse.cookies && apiGatewayResponse.cookies.length > 0) {
+      console.log("Outgoing Cookies (Set-Cookie):", apiGatewayResponse.cookies.length);
+      apiGatewayResponse.cookies.forEach((c, i) => {
+        const cookieParts = c.split(';');
+        console.log(`Cookie ${i}: ${cookieParts[0]}`);
+        // Log important attributes
+        const attrs = cookieParts.slice(1).map(p => p.trim()).filter(p => 
+          p.toLowerCase().startsWith('samesite') || 
+          p.toLowerCase().startsWith('secure') || 
+          p.toLowerCase().startsWith('httponly')
+        );
+        if (attrs.length > 0) console.log(`  Attributes: ${attrs.join(', ')}`);
+      });
+    } else {
+      console.log("No Outgoing Cookies set.");
+    }
+    
+    if (apiGatewayResponse.headers['Location'] || apiGatewayResponse.headers['location']) {
+         const location = apiGatewayResponse.headers['Location'] || apiGatewayResponse.headers['location'];
+         console.log("Redirect Location:", location.substring(0, 150) + (location.length > 150 ? '...' : ''));
+    }
+
     console.log("Response Body Length:", apiGatewayResponse.body?.length || 0);
     return apiGatewayResponse;
   } catch (error) {

@@ -97,3 +97,8 @@ aws logs tail /aws/lambda/shopify-invoice-app --follow
   - Ensure `SHOPIFY_WEBHOOK_SECRET` matches the secret in Shopify Admin if you manually created the webhook.
 - **500 Internal Server Error (DynamoDB)**:
   - Check IAM Role permissions. The Lambda needs `dynamodb:PutItem` on the `ShopifyOrders` table.
+- **"Handling response" / Auth Loop (Embedded App)**:
+  - Ensure `shopify.app.toml` has `use_legacy_install_flow = false` under `[access_scopes]`
+  - Run `shopify app deploy` to update the config
+  - **Reinstall the app** on your development store (required for managed installation)
+  - This is required for the token exchange authentication strategy used in embedded apps

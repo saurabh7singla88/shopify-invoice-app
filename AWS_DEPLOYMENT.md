@@ -192,12 +192,15 @@ The Lambda function requires these environment variables:
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `NODE_ENV` | Environment mode | `production` |
-| `SHOPIFY_API_KEY` | Shopify API Key | `abc123...` |
-| `SHOPIFY_API_SECRET` | Shopify API Secret | `xyz789...` |
+| `SHOPIFY_API_KEY` | Shopify API Key (Client ID) | `abc123...` |
+| `SHOPIFY_API_SECRET` | Shopify API Secret (Client Secret) | `xyz789...` |
+| `SHOPIFY_WEBHOOK_SECRET` | Webhook signature secret (from Shopify Admin → Settings → Notifications) | `whsec_...` |
 | `SHOPIFY_APP_URL` | Your app URL | `https://xxx.execute-api.us-east-1.amazonaws.com` |
 | `SCOPES` | Shopify API scopes | `read_orders,write_orders` |
 | `DYNAMODB_SESSION_TABLE` | Session table name | `shopify_sessions` |
 | `AWS_REGION` | AWS region | `us-east-1` |
+
+> ⚠️ **Important**: `SHOPIFY_WEBHOOK_SECRET` is required for webhook HMAC validation. Get it from Shopify Admin → Settings → Notifications → Webhooks section.
 
 ### Update Environment Variables
 
@@ -317,6 +320,40 @@ aws s3api get-bucket-policy --bucket your-bucket
 **Symptom:** Session storage fails
 
 **Solution:** Verify Lambda role has DynamoDB permissions (see CloudFormation template).
+
+#### 6. Embedded App Authentication Loop (401 Error)
+**Symptom:** App shows "Handling response" error or redirect loops to `/auth/session-token`
+
+**Root Cause:** Managed installation not enabled in `shopify.app.toml`
+
+**Solution:**
+1. Ensure `shopify.app.toml` has this setting under `[access_scopes]`:
+   ```toml
+   [access_scopes]
+   scopes = "read_orders,write_orders,..."
+   use_legacy_install_flow = false  # ← CRITICAL for embedded apps
+   ```
+
+2. Deploy the Shopify app config:
+   ```powershell
+   shopify app deploy
+   ```
+
+3. **Reinstall the app** on your development store (required to enable managed installation)
+
+**Why this works:** The `use_legacy_install_flow = false` enables Shopify's managed installation, which is **required** for the token exchange authentication strategy used in embedded apps. Without this, the app cannot exchange JWT tokens for access tokens.
+
+#### 7. Webhooks Failing HMAC Validation
+**Symptom:** Webhooks return 401 or "Invalid HMAC" errors
+
+**Solution:**
+1. Get webhook secret from Shopify Admin → Settings → Notifications → Webhooks
+2. Add to Lambda environment variables:
+   ```powershell
+   aws lambda update-function-configuration `
+     --function-name shopify-invoice-app `
+     --environment "Variables={...,SHOPIFY_WEBHOOK_SECRET=whsec_...}"
+   ```
 
 ### Debug Logging
 

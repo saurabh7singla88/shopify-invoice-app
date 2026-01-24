@@ -21,7 +21,14 @@ Use this checklist to ensure a successful deployment of your Shopify Invoice App
 - [ ] Shopify app created in Partner Dashboard
 - [ ] API Key obtained
 - [ ] API Secret obtained
+- [ ] Webhook Secret obtained (from Settings → Notifications → Webhooks)
 - [ ] Required scopes identified (e.g., `read_orders,write_orders`)
+- [ ] **CRITICAL for embedded apps:** `shopify.app.toml` has correct settings:
+  ```toml
+  [access_scopes]
+  scopes = "read_orders,write_orders,..."
+  use_legacy_install_flow = false  # ⚠️ Required for token exchange
+  ```
 
 ### Local Development Environment
 - [ ] Node.js 20+ installed (`node --version`)
@@ -94,6 +101,7 @@ Use this checklist to ensure a successful deployment of your Shopify Invoice App
   - [ ] `SHOPIFY_API_KEY`
   - [ ] `SHOPIFY_API_SECRET`
   - [ ] `SHOPIFY_APP_URL`
+  - [ ] `SHOPIFY_WEBHOOK_SECRET` ⚠️ Required for webhook HMAC validation
   - [ ] `SCOPES`
   - [ ] `DYNAMODB_SESSION_TABLE`
   - [ ] `AWS_REGION`

@@ -34,7 +34,7 @@
     },
     "Scopes": {
       "Type": "String",
-      "Default": "read_orders,write_orders",
+      "Default": "read_orders",
       "Description": "Comma-separated list of Shopify API scopes"
     }
   },
@@ -198,7 +198,8 @@
             "SHOPIFY_APP_URL": { "Ref": "ShopifyAppUrl" },
             "SCOPES": { "Ref": "Scopes" },
             "DYNAMODB_SESSION_TABLE": { "Ref": "DynamoDBSessionTable" },
-            "S3_BUCKET_NAME": { "Ref": "AssetsBucket" }
+            "S3_BUCKET_NAME": { "Ref": "AssetsBucket" },
+            "ORDERS_TABLE_NAME": "ShopifyOrders"
           }
         }
       }

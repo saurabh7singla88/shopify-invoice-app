@@ -19,6 +19,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const appSecret = process.env.SHOPIFY_API_SECRET || "";
     const webhookSecret = process.env.SHOPIFY_WEBHOOK_SECRET || "";
 
+    console.log("[Webhook Debug] Received HMAC:", receivedHmac);
+    console.log("[Webhook Debug] App Secret length:", appSecret.length);
+    console.log("[Webhook Debug] App Secret starts with:", appSecret.substring(0, 10));
+    console.log("[Webhook Debug] Webhook Secret length:", webhookSecret.length);
+    console.log("[Webhook Debug] Raw body length:", rawBody.length);
+
     const computeHmac = (secret: string) =>
       secret
         ? createHmac("sha256", secret).update(rawBody, "utf8").digest("base64")
@@ -26,6 +32,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     const appHmac = computeHmac(appSecret);
     const webhookHmac = computeHmac(webhookSecret);
+
+    console.log("[Webhook Debug] Computed App HMAC:", appHmac);
+    console.log("[Webhook Debug] Computed Webhook HMAC:", webhookHmac);
+    console.log("[Webhook Debug] HMAC Match (App):", receivedHmac === appHmac);
+    console.log("[Webhook Debug] HMAC Match (Webhook):", receivedHmac === webhookHmac);
 
     const hmacMatch = (expected: string, actual: string) => {
       if (!expected || !actual) return false;
