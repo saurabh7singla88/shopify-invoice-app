@@ -10,66 +10,7 @@ import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
-
-  // Auto-register webhooks on first load (production-ready approach)
-  try {
-    // Check if orders/create webhook already exists
-    const checkWebhook = await admin.graphql(
-      `#graphql
-        query {
-          webhookSubscriptions(first: 10, topics: ORDERS_CREATE) {
-            edges {
-              node {
-                id
-                topic
-              }
-            }
-          }
-        }
-      `
-    );
-
-    const checkResponse: any = await checkWebhook.json();
-    const existingWebhooks = checkResponse?.data?.webhookSubscriptions?.edges || [];
-
-    // Register webhook if it doesn't exist
-    if (existingWebhooks.length === 0) {
-      const webhookResponse = await admin.graphql(
-        `#graphql
-          mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {
-            webhookSubscriptionCreate(topic: $topic, webhookSubscription: $webhookSubscription) {
-              webhookSubscription {
-                id
-                topic
-              }
-              userErrors {
-                field
-                message
-              }
-            }
-          }
-        `,
-        {
-          variables: {
-            topic: "ORDERS_CREATE",
-            webhookSubscription: {
-              callbackUrl: `${process.env.SHOPIFY_APP_URL}/webhooks/orders/create`,
-              format: "JSON",
-            },
-          },
-        }
-      );
-
-      const registerResponse: any = await webhookResponse.json();
-      if (registerResponse?.data?.webhookSubscriptionCreate?.userErrors?.length > 0) {
-        console.error("Webhook auto-registration errors:", registerResponse.data.webhookSubscriptionCreate.userErrors);
-      }
-    }
-  } catch (error) {
-    // Don't block app loading if webhook registration fails
-    console.error("Webhook auto-registration failed:", error instanceof Error ? error.message : String(error));
-  }
+  await authenticate.admin(request);
   return null;
 };
 

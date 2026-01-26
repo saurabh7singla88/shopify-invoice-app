@@ -72,10 +72,42 @@ npm run deploy:aws:skip-build
 
 ## Webhooks
 
-The app listens for the `orders/create` webhook.
+The app handles three order webhooks: `orders/create`, `orders/cancelled`, and `orders/updated`.
 
-### Handler Location
-`app/routes/webhooks.orders.create.tsx`
+### Configuration
+
+Webhooks are declared in `shopify.app.toml` and automatically registered when you deploy:
+
+```powershell
+shopify app deploy
+```
+
+**Important:** Order webhooks contain protected customer data. Before deploying, you must request access:
+
+1. Go to [partners.shopify.com](https://partners.shopify.com) → Your App
+2. Left menu → **API Access**
+3. Click button in **"Access requests / Protected customer data access"** section
+4. Click **"Select"** in "Select your data use and reasons" and check what is required for your app
+5. Save, then you can deploy your app!
+
+### Handlers
+- **orders/create**: Creates invoice and stores in DynamoDB
+- **orders/cancelled**: Updates status to "Cancelled", moves invoice to cancelled-invoices/
+- **orders/updated**: Updates status to "Returned" for refunded orders
+
+### Verification
+
+Check webhooks in Shopify Admin → Settings → Notifications → Webhooks, or visit `/app/setup` in your app.
+
+### Testing
+
+```powershell
+# Watch Lambda logs
+aws logs tail /aws/lambda/shopify-invoice-app-ShopifyAppFunction --follow --region us-east-1
+
+# Check DynamoDB
+aws dynamodb get-item --table-name ShopifyOrders --key '{"name":{"S":"#1001"}}' --region us-east-1
+```
 
 ### Manual vs Automatic Registration
 - **Automatic**: The app attempts to register `orders/create` via the API. This often fails for "Protected Customer Data" reasons if the app is not fully approved.
