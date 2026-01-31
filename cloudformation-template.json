@@ -32,6 +32,31 @@
       "Default": "shopify_sessions",
       "Description": "DynamoDB table name for session storage"
     },
+    "ShopsTableName": {
+      "Type": "String",
+      "Default": "Shops",
+      "Description": "Name of the DynamoDB table for shop metadata"
+    },
+    "OrdersTableName": {
+      "Type": "String",
+      "Default": "ShopifyOrders",
+      "Description": "Name of the DynamoDB table for order data"
+    },
+    "TemplatesTableName": {
+      "Type": "String",
+      "Default": "Templates",
+      "Description": "Name of the DynamoDB table for invoice templates"
+    },
+    "TemplateConfigTableName": {
+      "Type": "String",
+      "Default": "TemplateConfigurations",
+      "Description": "Name of the DynamoDB table for template configurations"
+    },
+    "AuditLogsTableName": {
+      "Type": "String",
+      "Default": "AuditLogs",
+      "Description": "Name of the DynamoDB table for audit logs"
+    },
     "Scopes": {
       "Type": "String",
       "Default": "read_orders",
@@ -127,7 +152,19 @@
                       "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBSessionTable}/index/*"
                     },
                     {
-                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ShopifyOrders"
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ShopsTableName}"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OrdersTableName}"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TemplatesTableName}"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TemplateConfigTableName}"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AuditLogsTableName}"
                     }
                   ]
                 }
@@ -199,7 +236,11 @@
             "SCOPES": { "Ref": "Scopes" },
             "DYNAMODB_SESSION_TABLE": { "Ref": "DynamoDBSessionTable" },
             "S3_BUCKET_NAME": { "Ref": "AssetsBucket" },
-            "ORDERS_TABLE_NAME": "ShopifyOrders"
+            "SHOPS_TABLE_NAME": { "Ref": "ShopsTableName" },
+            "ORDERS_TABLE_NAME": { "Ref": "OrdersTableName" },
+            "TEMPLATES_TABLE_NAME": { "Ref": "TemplatesTableName" },
+            "TEMPLATE_CONFIG_TABLE_NAME": { "Ref": "TemplateConfigTableName" },
+            "AUDIT_LOGS_TABLE_NAME": { "Ref": "AuditLogsTableName" }
           }
         }
       }
@@ -259,6 +300,212 @@
           "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*"
         }
       }
+    },
+    "SessionsTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Ref": "DynamoDBSessionTable" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "id",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "shop",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "id",
+            "KeyType": "HASH"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "shop_index",
+            "KeySchema": [
+              {
+                "AttributeName": "shop",
+                "KeyType": "HASH"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": "Shopify-Invoice-App"
+          }
+        ]
+      }
+    },
+    "ShopsTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Ref": "ShopsTableName" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "shop",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "shop",
+            "KeyType": "HASH"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": "Shopify-Invoice-App"
+          }
+        ]
+      }
+    },
+    "OrdersTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Ref": "OrdersTableName" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "orderId",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "orderId",
+            "KeyType": "HASH"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": "Shopify-Invoice-App"
+          }
+        ]
+      }
+    },
+    "TemplatesTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Ref": "TemplatesTableName" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "templateId",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "templateId",
+            "KeyType": "HASH"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": "Shopify-Invoice-App"
+          }
+        ]
+      }
+    },
+    "TemplateConfigurationsTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Ref": "TemplateConfigTableName" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "shop",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "templateId",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "shop",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "templateId",
+            "KeyType": "RANGE"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": "Shopify-Invoice-App"
+          }
+        ]
+      }
+    },
+    "AuditLogsTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Ref": "AuditLogsTableName" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "logId",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "shop",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "timestamp",
+            "AttributeType": "N"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "logId",
+            "KeyType": "HASH"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "shop-timestamp-index",
+            "KeySchema": [
+              {
+                "AttributeName": "shop",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "timestamp",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            }
+          }
+        ],
+        "TimeToLiveSpecification": {
+          "AttributeName": "ttl",
+          "Enabled": true
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": "Shopify-Invoice-App"
+          }
+        ]
+      }
     }
   },
   "Outputs": {
@@ -283,6 +530,30 @@
     "LambdaFunctionArn": {
       "Description": "Lambda Function ARN",
       "Value": { "Fn::GetAtt": ["ShopifyAppFunction", "Arn"] }
+    },
+    "SessionsTableName": {
+      "Description": "DynamoDB Sessions Table Name",
+      "Value": { "Ref": "DynamoDBSessionTable" }
+    },
+    "ShopsTableName": {
+      "Description": "DynamoDB Shops Table Name",
+      "Value": { "Ref": "ShopsTableName" }
+    },
+    "OrdersTableName": {
+      "Description": "DynamoDB Orders Table Name",
+      "Value": { "Ref": "OrdersTableName" }
+    },
+    "TemplatesTableName": {
+      "Description": "DynamoDB Templates Table Name",
+      "Value": { "Ref": "TemplatesTableName" }
+    },
+    "TemplateConfigTableName": {
+      "Description": "DynamoDB Template Configurations Table Name",
+      "Value": { "Ref": "TemplateConfigTableName" }
+    },
+    "AuditLogsTableName": {
+      "Description": "DynamoDB Audit Logs Table Name",
+      "Value": { "Ref": "AuditLogsTableName" }
     }
   }
 }

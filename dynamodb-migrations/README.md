@@ -1,10 +1,23 @@
-# DynamoDB Migrations
+# DynamoDB Tables
 
-This folder contains scripts and templates for setting up DynamoDB tables required by the Shopify app.
+This folder contains scripts and templates for setting up DynamoDB tables required by the Shopify Invoice GST app.
+
+## Tables Overview
+
+| Table Name | Purpose | Primary Key | GSI | Environment Variable |
+|------------|---------|-------------|-----|---------------------|
+| `shopify_sessions` | Stores OAuth session data for Shopify authentication | `id` (String) | `shop_index` on `shop` | `DYNAMODB_SESSION_TABLE` |
+| `ShopifyOrders` | Stores order data from Shopify webhooks for invoice generation | `orderId` (String) | - | `ORDERS_TABLE_NAME` |
+| `Templates` | Master list of available invoice templates with metadata | `templateId` (String) | - | `TEMPLATES_TABLE` |
+| `TemplateConfigurations` | Stores custom template styling and company configurations per shop | `shop` (String), `templateId` (String) | - | `TEMPLATE_CONFIG_TABLE` |
+| `Shops` | Store metadata, installation details, subscription status | `shop` (String) | - | `SHOPS_TABLE` |
+| `AuditLogs` | Track user actions, API calls, and system events for compliance | `logId` (String) | `shop-timestamp-index` on `shop` and `timestamp` | `AUDIT_LOGS_TABLE` |
+
+---
 
 ## Table: shopify_sessions
 
-This table stores OAuth session data for the Shopify app.
+**Purpose**: Stores OAuth session data for the Shopify app authentication.
 
 ### Schema
 
@@ -19,6 +32,158 @@ This table stores OAuth session data for the Shopify app.
   - `accessToken` - Shopify access token
   - `expires` - Expiration timestamp (for online sessions)
   - `onlineAccessInfo` - Additional online session data
+
+---
+
+## Table: ShopifyOrders
+
+**Purpose**: Stores order data from Shopify webhooks to enable invoice generation and management.
+
+### Schema
+
+- **Primary Key**: `orderId` (String) - Unique Shopify order ID
+- **Attributes**:
+  - `orderId` - Shopify order ID
+  - `shop` - Shop domain
+  - `name` - Order number (e.g., #1001)
+  - `orderData` - Complete Shopify order JSON
+  - `invoiceUrl` - S3 URL of generated invoice PDF
+  - `status` - Order status (e.g., pending, completed, cancelled)
+  - `timestamp` - Order creation timestamp
+  - `updatedAt` - Last update timestamp
+
+---
+
+## Table: Templates
+
+**Purpose**: Master list of available invoice templates with metadata and configuration options.
+
+### Schema
+
+- **Primary Key**: `templateId` (String) - Template identifier (partition key)
+- **Attributes**:
+  - `templateId` - Unique template identifier (e.g., minimalist, classic, modern)
+  - `name` - Display name of the template
+  - `description` - Template description
+  - `previewImageUrl` - URL to template preview image
+  - `isDefault` - Boolean flag (1 = default template, 0 = non-default)
+  - `isActive` - Boolean flag indicating if template is available for use
+  - `category` - Template category (e.g., professional, creative, minimal)
+  - `supportedFeatures` - JSON array of supported features (e.g., GST, logo, signature)
+  - `configurableOptions` - JSON object describing configurable options
+  - `version` - Template version number
+  - `createdAt` - Template creation timestamp
+  - `updatedAt` - Last update timestamp
+
+### Initial Data
+
+```json
+{
+  "templateId": "minimalist",
+  "name": "Minimalist",
+  "description": "Clean, professional design with GST compliance and configurable colors. Supports both intrastate (CGST/SGST) and interstate (IGST) transactions.",
+  "previewImageUrl": "/templates/minimalist-preview.svg",
+  "isDefault": 1,
+  "isActive": 1,
+  "category": "professional",
+  "supportedFeatures": ["GST", "CGST/SGST", "IGST", "logo", "signature", "custom-colors", "custom-fonts"],
+  "configurableOptions": {
+    "primaryColor": { "type": "color", "label": "Primary Color", "default": "#333333" },
+    "fontFamily": { "type": "select", "label": "Font Family", "options": ["Helvetica", "Courier", "Times-Roman"], "default": "Helvetica" },
+    "titleFontSize": { "type": "number", "label": "Title Font Size", "min": 20, "max": 40, "default": 28 },
+    "headingFontSize": { "type": "number", "label": "Heading Font Size", "min": 12, "max": 24, "default": 16 },
+    "bodyFontSize": { "type": "number", "label": "Body Font Size", "min": 8, "max": 16, "default": 11 }
+  },
+  "version": "1.0",
+  "createdAt": 1706659200000,
+  "updatedAt": 1706659200000
+}
+```
+
+---
+
+## Table: TemplateConfigurations
+
+**Purpose**: Stores custom template styling (fonts, colors) and company configuration per shop and template.
+
+### Schema
+
+- **Primary Key**: 
+  - `shop` (String) - Partition key (shop domain)
+  - `templateId` (String) - Sort key (template identifier)
+- **Attributes**:
+  - `shop` - Shop domain
+  - `templateId` - Template identifier (e.g., minimalist, classic)
+  - `styling` - JSON object with font and color settings
+    - `primaryColor` - Hex color code
+    - `fontFamily` - Font family name
+    - `titleFontSize` - Number
+    - `headingFontSize` - Number
+    - `bodyFontSize` - Number
+  - `company` - JSON object with company information
+    - `companyName`, `legalName`, `addressLine1`, `addressLine2`
+    - `state`, `gstin`, `supportEmail`, `phone`
+    - `logoFilename`, `signatureFilename`
+  - `updatedAt` - Last update timestamp
+
+---
+
+## Table: Shops
+
+**Purpose**: Store metadata about each shop that has installed the app, including installation details and subscription status.
+
+### Schema
+
+- **Primary Key**: `shop` (String) - Shop domain (partition key)
+- **Attributes**:
+  - `shop` - Shop domain (e.g., `mystore.myshopify.com`)
+  - `status` - App installation status (e.g., installed, uninstalled, suspended)
+  - `installedAt` - First installation timestamp
+  - `lastActiveAt` - Last activity timestamp
+  - `uninstalledAt` - Uninstallation timestamp (null if currently installed)
+  - `reinstalledAt` - Reinstallation timestamp (if applicable)
+  - `subscriptionStatus` - Subscription status (e.g., active, trial, cancelled, expired)
+  - `subscriptionPlan` - Plan name (e.g., basic, premium)
+  - `shopName` - Store display name
+  - `shopEmail` - Store contact email
+  - `currency` - Default currency code
+  - `country` - Store country
+  - `timezone` - Store timezone
+  - `features` - JSON object with enabled features/flags
+  - `settings` - JSON object with shop-specific app settings
+  - `createdAt` - Record creation timestamp
+  - `updatedAt` - Last update timestamp
+
+---
+
+## Table: AuditLogs
+
+**Purpose**: Track user actions, API calls, and system events for compliance, debugging, and security monitoring.
+
+### Schema
+
+- **Primary Key**: `logId` (String) - Unique log identifier (ULID or UUID)
+- **Global Secondary Index**: `shop-timestamp-index` 
+  - Partition key: `shop` (String)
+  - Sort key: `timestamp` (Number)
+- **Attributes**:
+  - `logId` - Unique identifier for the log entry
+  - `shop` - Shop domain
+  - `timestamp` - Unix timestamp (milliseconds)
+  - `eventType` - Type of event (e.g., invoice.generated, settings.updated, order.created)
+  - `action` - Action performed (e.g., CREATE, UPDATE, DELETE, READ)
+  - `resource` - Resource affected (e.g., template, order, invoice)
+  - `resourceId` - ID of the affected resource
+  - `userId` - User who performed the action (if applicable)
+  - `ipAddress` - IP address of the request
+  - `userAgent` - User agent string
+  - `requestId` - Request/trace ID for correlation
+  - `status` - Status (e.g., success, failure)
+  - `errorMessage` - Error message if status is failure
+  - `metadata` - JSON object with additional context
+  - `ttl` - TTL for auto-deletion (optional, e.g., 90 days)
+
+---
 
 ## Setup Options
 

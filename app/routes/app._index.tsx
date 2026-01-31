@@ -15,6 +15,9 @@ import { S3Client } from "@aws-sdk/client-s3";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   
+  // Setup shop in background (non-blocking)
+  setupShop(session.shop, session.accessToken, session.scope || "");
+  
   const TABLE_NAME = process.env.ORDERS_TABLE_NAME || "ShopifyOrders";
   const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || "";
   const s3Client = new S3Client({ region: process.env.AWS_REGION || "us-east-1" });
@@ -426,6 +429,24 @@ export default function Index() {
       </s-section>
     </s-page>
   );
+}
+
+// Background shop setup (fire and forget)
+function setupShop(shop: string, accessToken: string, scopes: string) {
+  import("../services/dynamodb.server").then(async ({ upsertShop, getTemplateConfiguration, createDefaultTemplateConfiguration, logAuditEvent }) => {
+    try {
+      await upsertShop(shop, accessToken, scopes);
+      
+      const existingConfig = await getTemplateConfiguration(shop, "minimalist");
+      if (!existingConfig) {
+        await createDefaultTemplateConfiguration(shop);
+        await logAuditEvent(shop, "APP_INSTALLED", { scopes, installedAt: new Date().toISOString() });
+        console.log(`✅ Shop setup complete for ${shop}`);
+      }
+    } catch (error) {
+      console.error(`❌ Shop setup error for ${shop}:`, error);
+    }
+  }).catch(err => console.error("Failed to load dynamodb service:", err));
 }
 
 export const headers: HeadersFunction = (headersArgs) => {
