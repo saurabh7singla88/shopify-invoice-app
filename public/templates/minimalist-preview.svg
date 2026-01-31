@@ -1,0 +1,76 @@
+<svg width="400" height="520" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="400" height="520" fill="#ffffff"/>
+  
+  <!-- Header -->
+  <text x="20" y="30" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="#111827">PistaGreen</text>
+  <text x="20" y="48" font-family="Arial, sans-serif" font-size="9" fill="#6b7280">Maurya Enterprises</text>
+  <text x="20" y="60" font-family="Arial, sans-serif" font-size="8" fill="#6b7280">SCO 10, First Floor, Modern Complex, Zirakpur, SAS</text>
+  <text x="20" y="71" font-family="Arial, sans-serif" font-size="8" fill="#6b7280">Nagar, Punjab 140603</text>
+  <text x="20" y="82" font-family="Arial, sans-serif" font-size="8" fill="#6b7280">03AUBPR7748B1ZR</text>
+  
+  <!-- Logo placeholder -->
+  <circle cx="360" cy="45" r="25" fill="#e5e7eb" stroke="#333333" stroke-width="1"/>
+  <text x="360" y="50" font-family="Arial, sans-serif" font-size="10" fill="#6b7280" text-anchor="middle">LOGO</text>
+  
+  <!-- Divider line -->
+  <line x1="20" y1="100" x2="380" y2="100" stroke="#e5e7eb" stroke-width="1"/>
+  
+  <!-- Order Details and Shipping Address -->
+  <text x="20" y="120" font-family="Arial, sans-serif" font-size="12" font-weight="600" fill="#111827">Order Details</text>
+  <text x="270" y="120" font-family="Arial, sans-serif" font-size="12" font-weight="600" fill="#111827">Shipping Address</text>
+  
+  <text x="20" y="138" font-family="Arial, sans-serif" font-size="9" fill="#6b7280">Order Number:</text>
+  <text x="90" y="138" font-family="Arial, sans-serif" font-size="9" fill="#111827">PG1280</text>
+  <text x="270" y="138" font-family="Arial, sans-serif" font-size="9" fill="#111827">Anjelin Mathew</text>
+  
+  <text x="20" y="152" font-family="Arial, sans-serif" font-size="9" fill="#6b7280">Order Date:</text>
+  <text x="90" y="152" font-family="Arial, sans-serif" font-size="9" fill="#111827">25 Jan 2026</text>
+  <text x="270" y="152" font-family="Arial, sans-serif" font-size="8" fill="#111827">45/59 Peace Cottage Shanti Nagar</text>
+  <text x="270" y="163" font-family="Arial, sans-serif" font-size="8" fill="#111827">Jagdalpur, Chhattisgarh, 494001</text>
+  
+  <!-- Items Section -->
+  <text x="20" y="190" font-family="Arial, sans-serif" font-size="12" font-weight="600" fill="#111827">Items</text>
+  
+  <!-- Table Header -->
+  <rect x="20" y="200" width="360" height="25" fill="#333333"/>
+  <text x="25" y="215" font-family="Arial, sans-serif" font-size="7" fill="#ffffff">Item</text>
+  <text x="150" y="215" font-family="Arial, sans-serif" font-size="7" fill="#ffffff" text-anchor="middle">Qty</text>
+  <text x="190" y="215" font-family="Arial, sans-serif" font-size="7" fill="#ffffff" text-anchor="end">MRP</text>
+  <text x="230" y="215" font-family="Arial, sans-serif" font-size="7" fill="#ffffff" text-anchor="end">Disc</text>
+  <text x="270" y="215" font-family="Arial, sans-serif" font-size="7" fill="#ffffff" text-anchor="end">Before tax</text>
+  <text x="310" y="215" font-family="Arial, sans-serif" font-size="7" fill="#ffffff" text-anchor="end">Tax</text>
+  <text x="370" y="215" font-family="Arial, sans-serif" font-size="7" fill="#ffffff" text-anchor="end">After tax</text>
+  
+  <!-- Table Row -->
+  <rect x="20" y="225" width="360" height="35" fill="none" stroke="#e5e7eb" stroke-width="1"/>
+  <text x="25" y="245" font-family="Arial, sans-serif" font-size="8" fill="#111827">Japanese Crepe Tailored</text>
+  <text x="150" y="245" font-family="Arial, sans-serif" font-size="8" fill="#111827" text-anchor="middle">1</text>
+  <text x="190" y="245" font-family="Arial, sans-serif" font-size="8" fill="#111827" text-anchor="end">2990.00</text>
+  <text x="230" y="245" font-family="Arial, sans-serif" font-size="8" fill="#111827" text-anchor="end">370.00</text>
+  <text x="270" y="245" font-family="Arial, sans-serif" font-size="8" fill="#111827" text-anchor="end">2477.62</text>
+  <text x="310" y="245" font-family="Arial, sans-serif" font-size="8" fill="#111827" text-anchor="end">123.88</text>
+  <text x="370" y="245" font-family="Arial, sans-serif" font-size="8" fill="#111827" text-anchor="end">2601.50</text>
+  
+  <!-- Totals Section -->
+  <text x="240" y="285" font-family="Arial, sans-serif" font-size="9" fill="#6b7280" text-anchor="end">Subtotal (before tax):</text>
+  <text x="370" y="285" font-family="Arial, sans-serif" font-size="9" fill="#111827" text-anchor="end">Rs. 2477.62</text>
+  
+  <text x="240" y="302" font-family="Arial, sans-serif" font-size="9" fill="#6b7280" text-anchor="end">Total Tax:</text>
+  <text x="370" y="302" font-family="Arial, sans-serif" font-size="9" fill="#111827" text-anchor="end">Rs. 123.88</text>
+  
+  <text x="240" y="319" font-family="Arial, sans-serif" font-size="9" fill="#6b7280" text-anchor="end">Shipping:</text>
+  <text x="370" y="319" font-family="Arial, sans-serif" font-size="9" fill="#111827" text-anchor="end">Rs. 0.00</text>
+  
+  <!-- Total Box -->
+  <rect x="240" y="330" width="140" height="30" fill="#333333"/>
+  <text x="265" y="350" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#ffffff">TOTAL:</text>
+  <text x="370" y="350" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#ffffff" text-anchor="end">Rs. 2620.00</text>
+  
+  <!-- Footer elements -->
+  <line x1="20" y1="380" x2="200" y2="380" stroke="#333333" stroke-width="1"/>
+  <text x="20" y="395" font-family="Arial, sans-serif" font-size="8" fill="#6b7280">Authorized Signature</text>
+  
+  <text x="20" y="420" font-family="Arial, sans-serif" font-size="7" fill="#9ca3af">Thank you for your business!</text>
+  <text x="20" y="432" font-family="Arial, sans-serif" font-size="7" fill="#9ca3af">For queries, contact: support@pistagreen.com</text>
+</svg>
