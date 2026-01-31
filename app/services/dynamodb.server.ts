@@ -27,6 +27,7 @@ export async function upsertShop(shop: string, accessToken: string, scopes: stri
         accessToken,
         scopes,
         isActive: true,
+        templateId: "minimalist", // Set default template
         installedAt: now,
         updatedAt: now,
       },

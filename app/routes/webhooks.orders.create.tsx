@@ -96,7 +96,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const invokeParams = {
         FunctionName: process.env.INVOICE_LAMBDA_NAME || "shopify-generate-invoice",
         InvocationType: "Event" as const, // Asynchronous invocation
-        Payload: JSON.stringify(payload),
+        Payload: Buffer.from(JSON.stringify({
+          ...payload,
+          shop,
+          shop_domain: shop,
+        }),
+        "utf8"),
       };
 
       await lambdaClient.send(new InvokeCommand(invokeParams));
