@@ -128,6 +128,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       currency: payload.currency || payload.presentment_currency || "INR",
       total_price: payload.total_price || payload.current_total_price || "0.00",
       financial_status: payload.financial_status || "pending",
+      sourceIP: payload.browser_ip || payload.client_details?.browser_ip || null,
       shop, // Include shop domain
       topic, // Include webhook topic
       ttl: Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60, // 90 days expiration

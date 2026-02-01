@@ -12,9 +12,10 @@ const s3Client = new S3Client({ region: process.env.AWS_REGION || "us-east-1" })
 /**
  * Moves invoice file(s) from invoices/ folder to target folder in S3
  */
-async function moveInvoiceToFolder(orderName: string, targetCancelledFolder: string) {
+async function moveInvoiceToFolder(orderName: string, shop: string, targetFolder: string = 'cancelled') {
   const movedFiles: string[] = [];
   const orderNameClean = orderName.replace("#", "");
+  const sanitizedShop = shop.replace(/\./g, '-');
 
   if (!S3_BUCKET_NAME) {
     console.warn("S3_BUCKET_NAME not set, skipping S3 operations");
@@ -22,10 +23,10 @@ async function moveInvoiceToFolder(orderName: string, targetCancelledFolder: str
   }
 
   try {
-    // List all objects with the order name in the invoices folder
+    // List all objects with the order name in the shop's invoices folder
     const listParams = {
       Bucket: S3_BUCKET_NAME,
-      Prefix: "invoices/",
+      Prefix: `shops/${sanitizedShop}/invoices/`,
     };
 
     const listResult = await s3Client.send(new ListObjectsV2Command(listParams));
@@ -51,7 +52,7 @@ async function moveInvoiceToFolder(orderName: string, targetCancelledFolder: str
       if (!sourceKey) continue;
       
       const fileName = sourceKey.split("/").pop();
-      const destinationKey = `${targetCancelledFolder}/${fileName}`;
+      const destinationKey = `shops/${sanitizedShop}/${targetFolder}/${fileName}`;
 
       // Copy to target folder
       await s3Client.send(
@@ -78,7 +79,7 @@ async function moveInvoiceToFolder(orderName: string, targetCancelledFolder: str
 
     return movedFiles;
   } catch (error) {
-    console.error(`Error moving invoice to ${targetCancelledFolder} folder:`, error);
+    console.error(`Error moving invoice to ${targetFolder} folder:`, error);
     // Don't throw, just return what happened so far so we don't fail the webhook response
     return movedFiles;
   }
@@ -177,9 +178,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const updateResult = await dynamodb.send(new UpdateCommand(updateParams));
     console.log("Updated record:", JSON.stringify(updateResult.Attributes, null, 2));
 
-    // Move invoice to cancelled-invoices folder in S3
-    const targetCancelledFolder = "cancelled-invoices";
-    const movedFiles = await moveInvoiceToFolder(orderName, targetCancelledFolder);
+    // Move invoice to shop's cancelled folder in S3
+    const movedFiles = await moveInvoiceToFolder(orderName, shop, 'cancelled');
     
     return new Response(JSON.stringify({
         success: true,
