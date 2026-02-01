@@ -161,6 +161,37 @@ export async function getTemplateConfiguration(shop: string, templateId: string 
 }
 
 /**
+ * Save template configuration for a shop (create or update)
+ */
+export async function saveTemplateConfiguration(
+  shop: string,
+  templateId: string,
+  config: { styling: any; company: any }
+) {
+  const now = Date.now();
+  
+  try {
+    await dynamodb.send(new PutCommand({
+      TableName: TEMPLATE_CONFIG_TABLE,
+      Item: {
+        shop,
+        templateId,
+        styling: config.styling,
+        company: config.company,
+        updatedAt: now,
+        createdAt: now, // Will be overwritten if exists, but good for new records
+      },
+    }));
+    
+    console.log(`Template configuration saved for shop ${shop}, template ${templateId}`);
+    return { success: true };
+  } catch (error) {
+    console.error(`Error saving template configuration for ${shop}:`, error);
+    throw error;
+  }
+}
+
+/**
  * Update template configuration for a shop
  */
 export async function updateTemplateConfiguration(

@@ -1,59 +1,147 @@
 import { useState, useEffect } from "react";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
-import { useLoaderData, useSearchParams, Form, useNavigation, useNavigate } from "react-router";
+import { useLoaderData, useSearchParams, Form, useNavigation, useNavigate, useActionData } from "react-router";
 import { authenticate } from "../shopify.server";
+import { saveTemplateConfiguration, getTemplateConfiguration } from "../services/dynamodb.server";
+import { uploadImageToS3 } from "../services/s3.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+  const shop = session.shop;
   
   // Get template ID from URL params
   const url = new URL(request.url);
   const templateId = url.searchParams.get("template") || "minimalist";
   
+  // Try to load existing configuration from DynamoDB
+  let existingConfig = null;
+  try {
+    existingConfig = await getTemplateConfiguration(shop, templateId);
+  } catch (error) {
+    console.error("Error loading template config:", error);
+  }
+  
   // Configuration based on lambda-generate-invoice .env structure
   const configuration = {
     // Fonts and Colors
     styling: {
-      primaryColor: { label: "Primary Color", type: "color", default: "#333333", envVar: "INVOICE_PRIMARY_COLOR" },
-      fontFamily: { label: "Font Family", type: "select", default: "Helvetica", options: ["Helvetica", "Courier", "Times-Roman"], envVar: "INVOICE_FONT_FAMILY" },
-      titleFontSize: { label: "Title Font Size", type: "number", default: 28, min: 20, max: 40, envVar: "INVOICE_TITLE_FONT_SIZE" },
-      headingFontSize: { label: "Heading Font Size", type: "number", default: 16, min: 12, max: 24, envVar: "INVOICE_HEADING_FONT_SIZE" },
-      bodyFontSize: { label: "Body Font Size", type: "number", default: 11, min: 8, max: 16, envVar: "INVOICE_BODY_FONT_SIZE" },
+      primaryColor: { label: "Primary Color", type: "color", default: existingConfig?.styling?.primaryColor || "#333333", envVar: "INVOICE_PRIMARY_COLOR" },
+      fontFamily: { label: "Font Family", type: "select", default: existingConfig?.styling?.fontFamily || "Helvetica", options: ["Helvetica", "Courier", "Times-Roman"], envVar: "INVOICE_FONT_FAMILY" },
+      titleFontSize: { label: "Title Font Size", type: "number", default: existingConfig?.styling?.titleFontSize || 28, min: 20, max: 40, envVar: "INVOICE_TITLE_FONT_SIZE" },
+      headingFontSize: { label: "Heading Font Size", type: "number", default: existingConfig?.styling?.headingFontSize || 16, min: 12, max: 24, envVar: "INVOICE_HEADING_FONT_SIZE" },
+      bodyFontSize: { label: "Body Font Size", type: "number", default: existingConfig?.styling?.bodyFontSize || 11, min: 8, max: 16, envVar: "INVOICE_BODY_FONT_SIZE" },
     },
     // Company Configuration
     company: {
-      companyName: { label: "Company Name", type: "text", default: "", envVar: "COMPANY_NAME" },
-      legalName: { label: "Legal Name", type: "text", default: "", envVar: "COMPANY_LEGAL_NAME" },
-      addressLine1: { label: "Address Line 1", type: "text", default: "", envVar: "COMPANY_ADDRESS_LINE1" },
-      addressLine2: { label: "Address Line 2", type: "text", default: "", envVar: "COMPANY_ADDRESS_LINE2" },
-      state: { label: "State", type: "text", default: "", envVar: "COMPANY_STATE" },
-      gstin: { label: "GSTIN", type: "text", default: "", envVar: "COMPANY_GSTIN" },
-      supportEmail: { label: "Support Email", type: "email", default: "", envVar: "COMPANY_SUPPORT_EMAIL" },
-      phone: { label: "Phone", type: "text", default: "", envVar: "COMPANY_PHONE" },
-      logoFilename: { label: "Logo Filename", type: "file", default: "logo.jpg", envVar: "COMPANY_LOGO_FILENAME" },
-      signatureFilename: { label: "Signature Filename", type: "file", default: "", envVar: "COMPANY_SIGNATURE_FILENAME" },
+      companyName: { label: "Company Name", type: "text", default: existingConfig?.company?.companyName || "", envVar: "COMPANY_NAME" },
+      legalName: { label: "Legal Name", type: "text", default: existingConfig?.company?.legalName || "", envVar: "COMPANY_LEGAL_NAME" },
+      addressLine1: { label: "Address Line 1", type: "text", default: existingConfig?.company?.addressLine1 || "", envVar: "COMPANY_ADDRESS_LINE1" },
+      addressLine2: { label: "Address Line 2", type: "text", default: existingConfig?.company?.addressLine2 || "", envVar: "COMPANY_ADDRESS_LINE2" },
+      state: { label: "State", type: "text", default: existingConfig?.company?.state || "", envVar: "COMPANY_STATE" },
+      gstin: { label: "GSTIN", type: "text", default: existingConfig?.company?.gstin || "", envVar: "COMPANY_GSTIN" },
+      supportEmail: { label: "Support Email", type: "email", default: existingConfig?.company?.supportEmail || "", envVar: "COMPANY_SUPPORT_EMAIL" },
+      phone: { label: "Phone", type: "text", default: existingConfig?.company?.phone || "", envVar: "COMPANY_PHONE" },
+      logoFilename: { label: "Logo Filename", type: "file", default: existingConfig?.company?.logoFilename || "logo.JPG", envVar: "COMPANY_LOGO_FILENAME" },
+      signatureFilename: { label: "Signature Filename", type: "file", default: existingConfig?.company?.signatureFilename || "", envVar: "COMPANY_SIGNATURE_FILENAME" },
     }
   };
   
-  return { templateId, configuration };
+  return { shop, templateId, configuration };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+  const shop = session.shop;
   
   const formData = await request.formData();
-  // TODO: Save configuration to database or update .env
-  console.log("Saving configuration:", Object.fromEntries(formData));
+  const templateId = formData.get("templateId") as string || "minimalist";
   
-  return { success: true };
+  // Get existing configuration first to preserve values not in current form
+  let existingConfig = await getTemplateConfiguration(shop, templateId);
+  if (!existingConfig) {
+    existingConfig = { styling: {}, company: {} };
+  }
+  
+  // Helper to get form value or fallback to existing/default
+  const getFormValue = (key: string, fallback: any) => {
+    const value = formData.get(key);
+    if (value === null || value === undefined) return fallback;
+    const strValue = value as string;
+    return strValue.trim() === "" ? fallback : strValue;
+  };
+  
+  // Handle file uploads
+  let logoS3Key = existingConfig.company?.logoFilename || "logo.JPG";
+  let signatureS3Key = existingConfig.company?.signatureFilename || "";
+  
+  try {
+    const logoFile = formData.get("logoFile") as File | null;
+    if (logoFile && logoFile.size > 0) {
+      const logoBuffer = Buffer.from(await logoFile.arrayBuffer());
+      logoS3Key = await uploadImageToS3(logoBuffer, logoFile.name, shop);
+      console.log(`Logo uploaded: ${logoS3Key}`);
+    }
+    
+    const signatureFile = formData.get("signatureFile") as File | null;
+    if (signatureFile && signatureFile.size > 0) {
+      const signatureBuffer = Buffer.from(await signatureFile.arrayBuffer());
+      signatureS3Key = await uploadImageToS3(signatureBuffer, signatureFile.name, shop);
+      console.log(`Signature uploaded: ${signatureS3Key}`);
+    }
+  } catch (uploadError) {
+    console.error("Error uploading files:", uploadError);
+    return { success: false, error: "Failed to upload images" };
+  }
+  
+  // Parse form data into configuration structure - only update fields that are present
+  const styling = {
+    primaryColor: getFormValue("styling.primaryColor", existingConfig.styling?.primaryColor || "#333333"),
+    fontFamily: getFormValue("styling.fontFamily", existingConfig.styling?.fontFamily || "Helvetica"),
+    titleFontSize: formData.get("styling.titleFontSize") ? parseInt(formData.get("styling.titleFontSize") as string) : (existingConfig.styling?.titleFontSize || 28),
+    headingFontSize: formData.get("styling.headingFontSize") ? parseInt(formData.get("styling.headingFontSize") as string) : (existingConfig.styling?.headingFontSize || 16),
+    bodyFontSize: formData.get("styling.bodyFontSize") ? parseInt(formData.get("styling.bodyFontSize") as string) : (existingConfig.styling?.bodyFontSize || 11),
+  };
+  
+  const company = {
+    companyName: getFormValue("company.companyName", existingConfig.company?.companyName || ""),
+    legalName: getFormValue("company.legalName", existingConfig.company?.legalName || ""),
+    addressLine1: getFormValue("company.addressLine1", existingConfig.company?.addressLine1 || ""),
+    addressLine2: getFormValue("company.addressLine2", existingConfig.company?.addressLine2 || ""),
+    state: getFormValue("company.state", existingConfig.company?.state || ""),
+    gstin: getFormValue("company.gstin", existingConfig.company?.gstin || ""),
+    supportEmail: getFormValue("company.supportEmail", existingConfig.company?.supportEmail || ""),
+    phone: getFormValue("company.phone", existingConfig.company?.phone || ""),
+    logoFilename: logoS3Key,
+    signatureFilename: signatureS3Key,
+  };
+  
+  try {
+    await saveTemplateConfiguration(shop, templateId, { styling, company });
+    console.log(`✅ Configuration saved for shop: ${shop}, template: ${templateId}`);
+    return { success: true, message: "Configuration saved successfully" };
+  } catch (error) {
+    console.error("Error saving configuration:", error);
+    return { success: false, error: "Failed to save configuration" };
+  }
 };
 
 export default function CustomizeTemplate() {
-  const { templateId, configuration } = useLoaderData<typeof loader>();
+  const { shop, templateId, configuration } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
   const navigation = useNavigation();
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState("styling");
+  const [showNotification, setShowNotification] = useState(false);
+  
+  // Show notification after successful save
+  useEffect(() => {
+    if (actionData?.success) {
+      setShowNotification(true);
+      const timer = setTimeout(() => setShowNotification(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [actionData]);
   
   const sections = [
     { id: "styling", label: "Fonts and Colors", icon: "🎨" },
@@ -62,7 +150,8 @@ export default function CustomizeTemplate() {
 
   const isSubmitting = navigation.state === "submitting";
 
-  const renderFormField = (key: string, config: any) => {
+  const renderFormField = (key: string, config: any, section: string) => {
+    const fieldName = `${section}.${key}`;
     const commonStyle = {
       padding: '10px 12px',
       border: '1px solid #d1d5db',
@@ -100,7 +189,7 @@ export default function CustomizeTemplate() {
       
       case "select":
         return (
-          <select name={key} defaultValue={config.default} style={{ ...commonStyle, cursor: 'pointer' }}>
+          <select name={fieldName} defaultValue={config.default} style={{ ...commonStyle, cursor: 'pointer' }}>
             {config.options?.map((option: string) => (
               <option key={option} value={option}>{option}</option>
             ))}
@@ -112,7 +201,7 @@ export default function CustomizeTemplate() {
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <input
               type="number"
-              name={key}
+              name={fieldName}
               defaultValue={config.default}
               min={config.min}
               max={config.max}
@@ -132,17 +221,32 @@ export default function CustomizeTemplate() {
         );
 
       case "file":
+        const isLogo = key === "logoFilename";
+        const isSignature = key === "signatureFilename";
+        const fileInputName = isLogo ? "logoFile" : isSignature ? "signatureFile" : fieldName;
+        
         return (
           <div>
-            <input
-              type="text"
-              name={key}
-              defaultValue={config.default}
-              style={commonStyle}
-              placeholder={config.label}
-            />
-            <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
-              Place file in lambda-generate-invoice/assets/ folder
+            <div style={{ marginBottom: '8px' }}>
+              <input
+                type="file"
+                name={fileInputName}
+                accept="image/*"
+                style={{ 
+                  ...commonStyle,
+                  padding: '8px',
+                  cursor: 'pointer'
+                }}
+              />
+            </div>
+            {config.default && (
+              <p style={{ fontSize: '12px', color: '#10b981', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span>✓</span>
+                <span>Current: {config.default}</span>
+              </p>
+            )}
+            <p style={{ fontSize: '11px', color: '#6b7280', marginTop: '4px' }}>
+              Accepted: JPG, PNG, GIF • Max 5MB • Stored in S3
             </p>
           </div>
         );
@@ -151,7 +255,7 @@ export default function CustomizeTemplate() {
         return (
           <input
             type="email"
-            name={key}
+            name={fieldName}
             defaultValue={config.default}
             style={commonStyle}
             placeholder={config.label}
@@ -162,7 +266,7 @@ export default function CustomizeTemplate() {
         return (
           <input
             type="text"
-            name={key}
+            name={fieldName}
             defaultValue={config.default}
             style={commonStyle}
             placeholder={config.label}
@@ -173,6 +277,41 @@ export default function CustomizeTemplate() {
 
   return (
     <s-page>
+      {/* Success/Error Notification */}
+      {showNotification && actionData?.success && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          backgroundColor: '#10b981',
+          color: 'white',
+          padding: '12px 24px',
+          borderRadius: '8px',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          animation: 'slideIn 0.3s ease-out'
+        }}>
+          <span style={{ fontSize: '18px' }}>✓</span>
+          <span>{actionData.message}</span>
+        </div>
+      )}
+      
+      {actionData?.error && (
+        <div style={{
+          backgroundColor: '#fee',
+          color: '#c00',
+          padding: '12px 24px',
+          borderRadius: '8px',
+          marginBottom: '16px',
+          border: '1px solid #fcc'
+        }}>
+          ⚠️ {actionData.error}
+        </div>
+      )}
+      
       {/* Header */}
       <div style={{ 
         display: 'flex', 
@@ -287,7 +426,7 @@ export default function CustomizeTemplate() {
           borderRadius: '8px',
           padding: '24px'
         }}>
-          <Form method="post" id="customize-form">
+          <Form method="post" id="customize-form" encType="multipart/form-data">
             <input type="hidden" name="templateId" value={templateId} />
             <input type="hidden" name="section" value={activeSection} />
             
@@ -309,7 +448,7 @@ export default function CustomizeTemplate() {
                     }}>
                       {config.label}
                     </label>
-                    {renderFormField(key, config)}
+                    {renderFormField(key, config, "styling")}
                     <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '6px' }}>
                       Environment variable: <code style={{ backgroundColor: '#f3f4f6', padding: '2px 6px', borderRadius: '4px' }}>{config.envVar}</code>
                     </p>
@@ -337,7 +476,7 @@ export default function CustomizeTemplate() {
                       }}>
                         {config.label}
                       </label>
-                      {renderFormField(key, config)}
+                      {renderFormField(key, config, "company")}
                       <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '6px' }}>
                         <code style={{ backgroundColor: '#f3f4f6', padding: '2px 6px', borderRadius: '4px' }}>{config.envVar}</code>
                       </p>
