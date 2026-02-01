@@ -1,11 +1,12 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import dynamodb from "../db.server";
-import { PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, QueryCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 
 const TABLE_NAME = process.env.ORDERS_TABLE_NAME || "ShopifyOrders";
+const SHOPS_TABLE = process.env.SHOPS_TABLE_NAME || "Shops";
 const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || "us-east-1" });
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -14,16 +15,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const rawBody = await requestClone.text();
   
   try {
-    console.log("Authenticating webhook...");
     const receivedHmac = request.headers.get("x-shopify-hmac-sha256") || "";
     const appSecret = process.env.SHOPIFY_API_SECRET || "";
     const webhookSecret = process.env.SHOPIFY_WEBHOOK_SECRET || "";
-
-    console.log("[Webhook Debug] Received HMAC:", receivedHmac);
-    console.log("[Webhook Debug] App Secret length:", appSecret.length);
-    console.log("[Webhook Debug] App Secret starts with:", appSecret.substring(0, 10));
-    console.log("[Webhook Debug] Webhook Secret length:", webhookSecret.length);
-    console.log("[Webhook Debug] Raw body length:", rawBody.length);
 
     const computeHmac = (secret: string) =>
       secret
@@ -32,11 +26,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     const appHmac = computeHmac(appSecret);
     const webhookHmac = computeHmac(webhookSecret);
-
-    console.log("[Webhook Debug] Computed App HMAC:", appHmac);
-    console.log("[Webhook Debug] Computed Webhook HMAC:", webhookHmac);
-    console.log("[Webhook Debug] HMAC Match (App):", receivedHmac === appHmac);
-    console.log("[Webhook Debug] HMAC Match (Webhook):", receivedHmac === webhookHmac);
 
     const hmacMatch = (expected: string, actual: string) => {
       if (!expected || !actual) return false;
@@ -67,6 +56,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     // Check if invoice already exists for this order (idempotency)
     const orderId = payload.id?.toString() || payload.name;
+    console.log(`[Idempotency Check] Checking for existing invoice with orderId: ${orderId}`);
+    
     try {
       const existingInvoice = await dynamodb.send(new QueryCommand({
         TableName: process.env.INVOICES_TABLE_NAME || "Invoices",
@@ -79,7 +70,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }));
       
       if (existingInvoice.Items && existingInvoice.Items.length > 0) {
-        console.log(`Invoice already exists for order ${orderId}, skipping duplicate processing`);
+        console.log(`[Idempotency] Invoice already exists for order ${orderId} (ID: ${existingInvoice.Items[0].invoiceId}), skipping duplicate processing`);
         return new Response(
           JSON.stringify({
             success: true,
@@ -92,8 +83,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           }
         );
       }
+      
+      console.log(`[Idempotency] No existing invoice found for order ${orderId}, proceeding with processing`);
     } catch (checkError) {
-      console.log("Error checking for existing invoice, proceeding:", checkError);
+      console.log("[Idempotency] Error checking for existing invoice, proceeding:", checkError);
       // Continue processing if check fails
     }
 
@@ -101,20 +94,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const eventId = randomUUID();
     const timestamp = new Date().toISOString();
 
-    // Extract customer name from various possible sources
-    const customerName = 
-      (payload.customer?.first_name && payload.customer?.last_name) 
-        ? `${payload.customer.first_name} ${payload.customer.last_name}`.trim()
-        : payload.customer?.first_name || payload.customer?.last_name ||
-          payload.billing_address?.name ||
-          payload.shipping_address?.name ||
-          payload.billing_address?.first_name && payload.billing_address?.last_name
-            ? `${payload.billing_address.first_name} ${payload.billing_address.last_name}`.trim()
-            : payload.billing_address?.first_name || payload.billing_address?.last_name ||
-              payload.shipping_address?.first_name && payload.shipping_address?.last_name
-                ? `${payload.shipping_address.first_name} ${payload.shipping_address.last_name}`.trim()
-                : payload.shipping_address?.first_name || payload.shipping_address?.last_name ||
-                  '';
+    // Extract customer name from order addresses
+    let customerName = '';
+    
+    if (payload.billing_address?.name) {
+      customerName = payload.billing_address.name;
+    }
+    else if (payload.shipping_address?.name) {
+      customerName = payload.shipping_address.name;
+    }
+    else if (payload.billing_address?.first_name || payload.billing_address?.last_name) {
+      customerName = `${payload.billing_address.first_name || ''} ${payload.billing_address.last_name || ''}`.trim();
+    }
+    else if (payload.shipping_address?.first_name || payload.shipping_address?.last_name) {
+      customerName = `${payload.shipping_address.first_name || ''} ${payload.shipping_address.last_name || ''}`.trim();
+    }
+    else if (payload.customer?.first_name || payload.customer?.last_name) {
+      customerName = `${payload.customer.first_name || ''} ${payload.customer.last_name || ''}`.trim();
+    }
+    else {
+      customerName = payload.contact_email || payload.email || 'Guest';
+    }
+    
+    console.log(`Customer name extracted: ${customerName}`);
 
     // Prepare item for DynamoDB (following lambda-shopify-orderCreated.mjs logic)
     const item = {

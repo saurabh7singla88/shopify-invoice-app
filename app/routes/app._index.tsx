@@ -299,15 +299,17 @@ export default function Index() {
                       <td style={{ padding: '10px 16px', fontSize: '13px', color: '#374151' }}>
                         {(() => {
                           const payload = order.payload || order;
-                          // Try customer first/last name
-                          const custFirst = payload.customer?.first_name || '';
-                          const custLast = payload.customer?.last_name || '';
-                          if (custFirst || custLast) {
-                            return [custFirst, custLast].filter(Boolean).join(' ');
-                          }
-                          // Try billing address name
+                          // Try billing address name first (most common in webhooks)
                           if (payload.billing_address?.name) {
                             return payload.billing_address.name;
+                          }
+                          // Try shipping address name
+                          if (payload.shipping_address?.name) {
+                            return payload.shipping_address.name;
+                          }
+                          // Try customer name from stored field
+                          if (order.customerName) {
+                            return order.customerName;
                           }
                           // Try billing address first/last name
                           const billFirst = payload.billing_address?.first_name || '';
@@ -315,15 +317,21 @@ export default function Index() {
                           if (billFirst || billLast) {
                             return [billFirst, billLast].filter(Boolean).join(' ');
                           }
-                          // Try shipping address name
-                          if (payload.shipping_address?.name) {
-                            return payload.shipping_address.name;
-                          }
                           // Try shipping address first/last name
                           const shipFirst = payload.shipping_address?.first_name || '';
                           const shipLast = payload.shipping_address?.last_name || '';
                           if (shipFirst || shipLast) {
                             return [shipFirst, shipLast].filter(Boolean).join(' ');
+                          }
+                          // Try customer first/last name
+                          const custFirst = payload.customer?.first_name || '';
+                          const custLast = payload.customer?.last_name || '';
+                          if (custFirst || custLast) {
+                            return [custFirst, custLast].filter(Boolean).join(' ');
+                          }
+                          // Fallback to customer ID
+                          if (payload.customer?.id) {
+                            return `Customer #${payload.customer.id}`;
                           }
                           return 'Guest';
                         })()}

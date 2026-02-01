@@ -33,7 +33,7 @@ api_version = "2026-04"
   uri = "/webhooks/orders/updated"
 
 [access_scopes]
-scopes = "read_orders"
+scopes = "read_orders,read_customers"
 use_legacy_install_flow = false
 
 [auth]
