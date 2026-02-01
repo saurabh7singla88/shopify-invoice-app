@@ -52,6 +52,11 @@
       "Default": "TemplateConfigurations",
       "Description": "Name of the DynamoDB table for template configurations"
     },
+    "InvoicesTableName": {
+      "Type": "String",
+      "Default": "Invoices",
+      "Description": "Name of the DynamoDB table for invoice records"
+    },
     "AuditLogsTableName": {
       "Type": "String",
       "Default": "AuditLogs",
@@ -240,6 +245,7 @@
             "ORDERS_TABLE_NAME": { "Ref": "OrdersTableName" },
             "TEMPLATES_TABLE_NAME": { "Ref": "TemplatesTableName" },
             "TEMPLATE_CONFIG_TABLE_NAME": { "Ref": "TemplateConfigTableName" },
+            "INVOICES_TABLE_NAME": { "Ref": "InvoicesTableName" },
             "AUDIT_LOGS_TABLE_NAME": { "Ref": "AuditLogsTableName" }
           }
         }

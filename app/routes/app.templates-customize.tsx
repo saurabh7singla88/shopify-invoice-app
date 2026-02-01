@@ -41,6 +41,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       gstin: { label: "GSTIN", type: "text", default: existingConfig?.company?.gstin || "", envVar: "COMPANY_GSTIN" },
       supportEmail: { label: "Support Email", type: "email", default: existingConfig?.company?.supportEmail || "", envVar: "COMPANY_SUPPORT_EMAIL" },
       phone: { label: "Phone", type: "text", default: existingConfig?.company?.phone || "", envVar: "COMPANY_PHONE" },
+      ownerEmail: { label: "Invoice Notification Email", type: "email", default: existingConfig?.company?.ownerEmail || "", envVar: "OWNER_EMAIL" },
+      sendEmailToCustomer: { label: "Send Invoice to Customer", type: "checkbox", default: existingConfig?.company?.sendEmailToCustomer || false, envVar: "SEND_EMAIL_TO_CUSTOMER" },
       logoFilename: { label: "Logo Filename", type: "file", default: existingConfig?.company?.logoFilename || "logo.JPG", envVar: "COMPANY_LOGO_FILENAME" },
       signatureFilename: { label: "Signature Filename", type: "file", default: existingConfig?.company?.signatureFilename || "", envVar: "COMPANY_SIGNATURE_FILENAME" },
     }
@@ -111,6 +113,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     gstin: getFormValue("company.gstin", existingConfig.company?.gstin || ""),
     supportEmail: getFormValue("company.supportEmail", existingConfig.company?.supportEmail || ""),
     phone: getFormValue("company.phone", existingConfig.company?.phone || ""),
+    ownerEmail: getFormValue("company.ownerEmail", existingConfig.company?.ownerEmail || ""),
+    sendEmailToCustomer: formData.get("company.sendEmailToCustomer") === "on" || existingConfig.company?.sendEmailToCustomer || false,
     logoFilename: logoS3Key,
     signatureFilename: signatureS3Key,
   };
@@ -260,6 +264,19 @@ export default function CustomizeTemplate() {
             style={commonStyle}
             placeholder={config.label}
           />
+        );
+      
+      case "checkbox":
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="checkbox"
+              name={fieldName}
+              defaultChecked={config.default}
+              style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: '14px', color: '#374151' }}>Enable this option</span>
+          </div>
         );
       
       default:

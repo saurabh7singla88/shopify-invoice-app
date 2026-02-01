@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import dynamodb from "../db.server";
-import { PutCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 
@@ -64,6 +64,38 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`Webhook authenticated - Topic: ${topic}, Shop: ${shop}`);
     console.log(`Order ID: ${payload.id}, Name: ${payload.name}`);
+
+    // Check if invoice already exists for this order (idempotency)
+    const orderId = payload.id?.toString() || payload.name;
+    try {
+      const existingInvoice = await dynamodb.send(new QueryCommand({
+        TableName: process.env.INVOICES_TABLE_NAME || "Invoices",
+        IndexName: "orderId-index",
+        KeyConditionExpression: "orderId = :orderId",
+        ExpressionAttributeValues: {
+          ":orderId": orderId
+        },
+        Limit: 1
+      }));
+      
+      if (existingInvoice.Items && existingInvoice.Items.length > 0) {
+        console.log(`Invoice already exists for order ${orderId}, skipping duplicate processing`);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: "Order already processed (duplicate webhook)",
+            invoiceId: existingInvoice.Items[0].invoiceId,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+    } catch (checkError) {
+      console.log("Error checking for existing invoice, proceeding:", checkError);
+      // Continue processing if check fails
+    }
 
     // Generate unique ID and timestamp
     const eventId = randomUUID();
