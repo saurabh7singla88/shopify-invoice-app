@@ -76,22 +76,41 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const endIndex = startIndex + itemsPerPage;
     const displayOrders = sortedOrders.slice(startIndex, endIndex);
 
+    // Calculate stats from ALL orders (not just paginated)
+    const activeCount = allItems.filter((o: any) => o.s3Key && o.status !== 'Cancelled' && o.status !== 'Returned').length;
+    const cancelledCount = allItems.filter((o: any) => o.status === 'Cancelled').length;
+    const returnedCount = allItems.filter((o: any) => o.status === 'Returned').length;
+
     return { 
       orders: displayOrders, 
       currentPage: page,
       totalPages,
       totalOrders: sortedOrders.length,
+      activeCount,
+      cancelledCount,
+      returnedCount,
       bucketName: S3_BUCKET_NAME, 
       shop: session.shop 
     };
   } catch (error) {
     console.error("Error loading orders:", error);
-    return { orders: [], currentPage: 1, totalPages: 1, totalOrders: 0, bucketName: S3_BUCKET_NAME, shop: session.shop, error: String(error) };
+    return { 
+      orders: [], 
+      currentPage: 1, 
+      totalPages: 1, 
+      totalOrders: 0, 
+      activeCount: 0,
+      cancelledCount: 0,
+      returnedCount: 0,
+      bucketName: S3_BUCKET_NAME, 
+      shop: session.shop, 
+      error: String(error) 
+    };
   }
 };
 
 export default function Index() {
-  const { orders, currentPage, totalPages, totalOrders, bucketName, shop, error } = useLoaderData<typeof loader>();
+  const { orders, currentPage, totalPages, totalOrders, activeCount, cancelledCount, returnedCount, bucketName, shop, error } = useLoaderData<typeof loader>();
   const [downloading, setDownloading] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
   const navigate = useNavigate();
@@ -219,7 +238,7 @@ export default function Index() {
                 minWidth: '150px'
               }}>
                 <div style={{ fontSize: '24px', fontWeight: '600', color: '#111827', marginBottom: '4px' }}>
-                  {orders.filter((o: any) => o.s3Key && o.status !== 'Cancelled' && o.status !== 'Returned').length}
+                  {activeCount}
                 </div>
                 <div style={{ fontSize: '13px', color: '#6b7280' }}>Active Invoices</div>
               </div>
@@ -232,7 +251,7 @@ export default function Index() {
                 minWidth: '150px'
               }}>
                 <div style={{ fontSize: '24px', fontWeight: '600', color: '#111827', marginBottom: '4px' }}>
-                  {orders.filter((o: any) => o.status === 'Cancelled').length}
+                  {cancelledCount}
                 </div>
                 <div style={{ fontSize: '13px', color: '#6b7280' }}>Cancelled</div>
               </div>
@@ -245,7 +264,7 @@ export default function Index() {
                 minWidth: '150px'
               }}>
                 <div style={{ fontSize: '24px', fontWeight: '600', color: '#111827', marginBottom: '4px' }}>
-                  {orders.filter((o: any) => o.status === 'Returned').length}
+                  {returnedCount}
                 </div>
                 <div style={{ fontSize: '13px', color: '#6b7280' }}>Returned</div>
               </div>
@@ -278,14 +297,55 @@ export default function Index() {
                         {new Date(order.timestamp || order.updatedAt || order.createdAt || order.created_at).toLocaleDateString('en-GB')}
                       </td>
                       <td style={{ padding: '10px 16px', fontSize: '13px', color: '#374151' }}>
-                        {order.customer?.first_name} {order.customer?.last_name || 'N/A'}
+                        {(() => {
+                          const payload = order.payload || order;
+                          // Try customer first/last name
+                          const custFirst = payload.customer?.first_name || '';
+                          const custLast = payload.customer?.last_name || '';
+                          if (custFirst || custLast) {
+                            return [custFirst, custLast].filter(Boolean).join(' ');
+                          }
+                          // Try billing address name
+                          if (payload.billing_address?.name) {
+                            return payload.billing_address.name;
+                          }
+                          // Try billing address first/last name
+                          const billFirst = payload.billing_address?.first_name || '';
+                          const billLast = payload.billing_address?.last_name || '';
+                          if (billFirst || billLast) {
+                            return [billFirst, billLast].filter(Boolean).join(' ');
+                          }
+                          // Try shipping address name
+                          if (payload.shipping_address?.name) {
+                            return payload.shipping_address.name;
+                          }
+                          // Try shipping address first/last name
+                          const shipFirst = payload.shipping_address?.first_name || '';
+                          const shipLast = payload.shipping_address?.last_name || '';
+                          if (shipFirst || shipLast) {
+                            return [shipFirst, shipLast].filter(Boolean).join(' ');
+                          }
+                          return 'Guest';
+                        })()}
                       </td>
                       <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#111827' }}>
-                        {order.currency} {order.total_price}
+                        {(() => {
+                          const payload = order.payload || order;
+                          const currency = payload.currency || payload.presentment_currency || '';
+                          const total = payload.total_price || payload.current_total_price || '0.00';
+                          return `${currency} ${total}`;
+                        })()}
                       </td>
                       <td style={{ padding: '10px 16px' }}>
-                        <s-badge tone={order.financial_status === 'paid' ? 'success' : order.financial_status === 'pending' ? 'attention' : 'default'}>
-                          {order.financial_status || 'Pending'}
+                        <s-badge tone={(() => {
+                          const payload = order.payload || order;
+                          const status = payload.financial_status;
+                          return status === 'paid' ? 'success' : status === 'pending' ? 'attention' : 'default';
+                        })()}>
+                          {(() => {
+                            const payload = order.payload || order;
+                            return payload.financial_status || 'Pending';
+                          })()}
                         </s-badge>
                       </td>
                       <td style={{ padding: '10px 16px' }}>

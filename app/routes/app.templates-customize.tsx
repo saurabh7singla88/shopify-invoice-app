@@ -26,10 +26,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     // Fonts and Colors
     styling: {
       primaryColor: { label: "Primary Color", type: "color", default: existingConfig?.styling?.primaryColor || "#333333", envVar: "INVOICE_PRIMARY_COLOR" },
+      headerBackgroundColor: { label: "Header Background Color", type: "color", default: existingConfig?.styling?.headerBackgroundColor || "#333333", envVar: "INVOICE_HEADER_BG_COLOR" },
+      headerTextColor: { label: "Header Text Color", type: "color", default: existingConfig?.styling?.headerTextColor || "#ffffff", envVar: "INVOICE_HEADER_TEXT_COLOR" },
       fontFamily: { label: "Font Family", type: "select", default: existingConfig?.styling?.fontFamily || "Helvetica", options: ["Helvetica", "Courier", "Times-Roman"], envVar: "INVOICE_FONT_FAMILY" },
       titleFontSize: { label: "Title Font Size", type: "number", default: existingConfig?.styling?.titleFontSize || 28, min: 20, max: 40, envVar: "INVOICE_TITLE_FONT_SIZE" },
       headingFontSize: { label: "Heading Font Size", type: "number", default: existingConfig?.styling?.headingFontSize || 16, min: 12, max: 24, envVar: "INVOICE_HEADING_FONT_SIZE" },
       bodyFontSize: { label: "Body Font Size", type: "number", default: existingConfig?.styling?.bodyFontSize || 11, min: 8, max: 16, envVar: "INVOICE_BODY_FONT_SIZE" },
+      itemTableFontSize: { label: "Item Table Font Size", type: "number", default: existingConfig?.styling?.itemTableFontSize || 8, min: 6, max: 12, envVar: "INVOICE_TABLE_FONT_SIZE" },
     },
     // Company Configuration
     company: {
@@ -45,6 +48,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       sendEmailToCustomer: { label: "Send Invoice to Customer", type: "checkbox", default: existingConfig?.company?.sendEmailToCustomer || false, envVar: "SEND_EMAIL_TO_CUSTOMER" },
       logoFilename: { label: "Logo Filename", type: "file", default: existingConfig?.company?.logoFilename || "logo.JPG", envVar: "COMPANY_LOGO_FILENAME" },
       signatureFilename: { label: "Signature Filename", type: "file", default: existingConfig?.company?.signatureFilename || "", envVar: "COMPANY_SIGNATURE_FILENAME" },
+      includeSignature: { label: "Include Signature in Invoice", type: "checkbox", default: existingConfig?.company?.includeSignature !== undefined ? existingConfig?.company?.includeSignature : true, envVar: "INCLUDE_SIGNATURE" },
     }
   };
   
@@ -76,6 +80,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   let logoS3Key = existingConfig.company?.logoFilename || "logo.JPG";
   let signatureS3Key = existingConfig.company?.signatureFilename || "";
   
+  // Check if signature should be included
+  const includeSignature = formData.get("company.includeSignature") === "on";
+  
   try {
     const logoFile = formData.get("logoFile") as File | null;
     if (logoFile && logoFile.size > 0) {
@@ -84,11 +91,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       console.log(`Logo uploaded: ${logoS3Key}`);
     }
     
-    const signatureFile = formData.get("signatureFile") as File | null;
-    if (signatureFile && signatureFile.size > 0) {
-      const signatureBuffer = Buffer.from(await signatureFile.arrayBuffer());
-      signatureS3Key = await uploadImageToS3(signatureBuffer, signatureFile.name, shop);
-      console.log(`Signature uploaded: ${signatureS3Key}`);
+    // Only upload signature if includeSignature is checked
+    if (includeSignature) {
+      const signatureFile = formData.get("signatureFile") as File | null;
+      if (signatureFile && signatureFile.size > 0) {
+        const signatureBuffer = Buffer.from(await signatureFile.arrayBuffer());
+        signatureS3Key = await uploadImageToS3(signatureBuffer, signatureFile.name, shop);
+        console.log(`Signature uploaded: ${signatureS3Key}`);
+      }
+    } else {
+      // If signature is disabled, set to null
+      signatureS3Key = null;
     }
   } catch (uploadError) {
     console.error("Error uploading files:", uploadError);
@@ -98,10 +111,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // Parse form data into configuration structure - only update fields that are present
   const styling = {
     primaryColor: getFormValue("styling.primaryColor", existingConfig.styling?.primaryColor || "#333333"),
+    headerBackgroundColor: getFormValue("styling.headerBackgroundColor", existingConfig.styling?.headerBackgroundColor || "#333333"),
+    headerTextColor: getFormValue("styling.headerTextColor", existingConfig.styling?.headerTextColor || "#ffffff"),
     fontFamily: getFormValue("styling.fontFamily", existingConfig.styling?.fontFamily || "Helvetica"),
     titleFontSize: formData.get("styling.titleFontSize") ? parseInt(formData.get("styling.titleFontSize") as string) : (existingConfig.styling?.titleFontSize || 28),
     headingFontSize: formData.get("styling.headingFontSize") ? parseInt(formData.get("styling.headingFontSize") as string) : (existingConfig.styling?.headingFontSize || 16),
     bodyFontSize: formData.get("styling.bodyFontSize") ? parseInt(formData.get("styling.bodyFontSize") as string) : (existingConfig.styling?.bodyFontSize || 11),
+    itemTableFontSize: formData.get("styling.itemTableFontSize") ? parseInt(formData.get("styling.itemTableFontSize") as string) : (existingConfig.styling?.itemTableFontSize || 8),
   };
   
   const company = {
@@ -116,6 +132,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     ownerEmail: getFormValue("company.ownerEmail", existingConfig.company?.ownerEmail || ""),
     sendEmailToCustomer: formData.get("company.sendEmailToCustomer") === "on" || existingConfig.company?.sendEmailToCustomer || false,
     logoFilename: logoS3Key,
+    includeSignature: includeSignature,
     signatureFilename: signatureS3Key,
   };
   
@@ -167,12 +184,21 @@ export default function CustomizeTemplate() {
 
     switch (config.type) {
       case "color":
+        const colorTextId = `${fieldName}-text`;
+        const colorPickerId = `${fieldName}-picker`;
         return (
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <input
               type="color"
-              name={key}
+              id={colorPickerId}
+              name={fieldName}
               defaultValue={config.default}
+              onChange={(e) => {
+                const textInput = document.getElementById(colorTextId) as HTMLInputElement;
+                if (textInput) {
+                  textInput.value = e.target.value;
+                }
+              }}
               style={{
                 width: '60px',
                 height: '44px',
@@ -184,7 +210,14 @@ export default function CustomizeTemplate() {
             />
             <input
               type="text"
+              id={colorTextId}
               defaultValue={config.default}
+              onChange={(e) => {
+                const colorInput = document.getElementById(colorPickerId) as HTMLInputElement;
+                if (colorInput && /^#[0-9A-F]{6}$/i.test(e.target.value)) {
+                  colorInput.value = e.target.value;
+                }
+              }}
               style={{ ...commonStyle, width: '140px' }}
               placeholder="#333333"
             />
@@ -244,12 +277,12 @@ export default function CustomizeTemplate() {
               />
             </div>
             {config.default && (
-              <p style={{ fontSize: '12px', color: '#10b981', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <p style={{ fontSize: '11px', color: '#10b981', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <span>✓</span>
                 <span>Current: {config.default}</span>
               </p>
             )}
-            <p style={{ fontSize: '11px', color: '#6b7280', marginTop: '4px' }}>
+            <p style={{ fontSize: '10px', color: '#6b7280', marginTop: '4px' }}>
               Accepted: JPG, PNG, GIF • Max 5MB • Stored in S3
             </p>
           </div>
@@ -273,9 +306,9 @@ export default function CustomizeTemplate() {
               type="checkbox"
               name={fieldName}
               defaultChecked={config.default}
-              style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
             />
-            <span style={{ fontSize: '14px', color: '#374151' }}>Enable this option</span>
+            <span style={{ fontSize: '12px', color: '#374151' }}>Enable this option</span>
           </div>
         );
       
@@ -455,19 +488,19 @@ export default function CustomizeTemplate() {
                 </p>
                 
                 {Object.entries(configuration.styling).map(([key, config]: [string, any]) => (
-                  <div key={key} style={{ marginBottom: '24px' }}>
+                  <div key={key} style={{ marginBottom: '20px' }}>
                     <label style={{ 
                       display: 'block', 
-                      fontSize: '14px', 
+                      fontSize: '13px', 
                       fontWeight: '500', 
-                      marginBottom: '8px',
+                      marginBottom: '6px',
                       color: '#374151'
                     }}>
                       {config.label}
                     </label>
                     {renderFormField(key, config, "styling")}
-                    <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '6px' }}>
-                      Environment variable: <code style={{ backgroundColor: '#f3f4f6', padding: '2px 6px', borderRadius: '4px' }}>{config.envVar}</code>
+                    <p style={{ fontSize: '10px', color: '#9ca3af', marginTop: '4px' }}>
+                      Environment variable: <code style={{ backgroundColor: '#f3f4f6', padding: '1px 4px', borderRadius: '3px', fontSize: '10px' }}>{config.envVar}</code>
                     </p>
                   </div>
                 ))}
@@ -481,21 +514,21 @@ export default function CustomizeTemplate() {
                   Configure your company details that appear on invoices
                 </p>
                 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                   {Object.entries(configuration.company).map(([key, config]: [string, any]) => (
                     <div key={key} style={{ gridColumn: ['addressLine1', 'addressLine2'].includes(key) ? 'span 2' : 'span 1' }}>
                       <label style={{ 
                         display: 'block', 
-                        fontSize: '14px', 
+                        fontSize: '13px', 
                         fontWeight: '500', 
-                        marginBottom: '8px',
+                        marginBottom: '6px',
                         color: '#374151'
                       }}>
                         {config.label}
                       </label>
                       {renderFormField(key, config, "company")}
-                      <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '6px' }}>
-                        <code style={{ backgroundColor: '#f3f4f6', padding: '2px 6px', borderRadius: '4px' }}>{config.envVar}</code>
+                      <p style={{ fontSize: '10px', color: '#9ca3af', marginTop: '4px' }}>
+                        <code style={{ backgroundColor: '#f3f4f6', padding: '1px 4px', borderRadius: '3px', fontSize: '10px' }}>{config.envVar}</code>
                       </p>
                     </div>
                   ))}

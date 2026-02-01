@@ -101,6 +101,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const eventId = randomUUID();
     const timestamp = new Date().toISOString();
 
+    // Extract customer name from various possible sources
+    const customerName = 
+      (payload.customer?.first_name && payload.customer?.last_name) 
+        ? `${payload.customer.first_name} ${payload.customer.last_name}`.trim()
+        : payload.customer?.first_name || payload.customer?.last_name ||
+          payload.billing_address?.name ||
+          payload.shipping_address?.name ||
+          payload.billing_address?.first_name && payload.billing_address?.last_name
+            ? `${payload.billing_address.first_name} ${payload.billing_address.last_name}`.trim()
+            : payload.billing_address?.first_name || payload.billing_address?.last_name ||
+              payload.shipping_address?.first_name && payload.shipping_address?.last_name
+                ? `${payload.shipping_address.first_name} ${payload.shipping_address.last_name}`.trim()
+                : payload.shipping_address?.first_name || payload.shipping_address?.last_name ||
+                  '';
+
     // Prepare item for DynamoDB (following lambda-shopify-orderCreated.mjs logic)
     const item = {
       eventId,
@@ -108,6 +123,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       timestamp,
       status: "Created",
       payload,
+      customerName, // Store extracted customer name at top level for easy access
+      customer: payload.customer || null,
+      currency: payload.currency || payload.presentment_currency || "INR",
+      total_price: payload.total_price || payload.current_total_price || "0.00",
+      financial_status: payload.financial_status || "pending",
       shop, // Include shop domain
       topic, // Include webhook topic
       ttl: Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60, // 90 days expiration
