@@ -262,6 +262,7 @@
             "SCOPES": { "Ref": "Scopes" },
             "DYNAMODB_SESSION_TABLE": { "Ref": "DynamoDBSessionTable" },
             "S3_BUCKET_NAME": { "Ref": "AssetsBucket" },
+            "APP_ASSETS_BUCKET_NAME": { "Ref": "AssetsBucket" },
             "SHOPS_TABLE_NAME": { "Ref": "ShopsTableName" },
             "ORDERS_TABLE_NAME": { "Ref": "OrdersTableName" },
             "TEMPLATES_TABLE_NAME": { "Ref": "TemplatesTableName" },

@@ -3,7 +3,7 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useLoaderData, useNavigate } from "react-router";
+import { useLoaderData, useSearchParams } from "react-router";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
@@ -113,22 +113,27 @@ export default function Index() {
   const { orders, currentPage, totalPages, totalOrders, activeCount, cancelledCount, returnedCount, bucketName, shop, error } = useLoaderData<typeof loader>();
   const [downloading, setDownloading] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Set isClient after hydration to prevent mismatch
   useEffect(() => {
+    console.log('[Index] Component mounted, currentPage:', currentPage, 'totalPages:', totalPages);
     setIsClient(true);
   }, []);
 
   const handleNextPage = () => {
+    console.log('[handleNextPage] Called, currentPage:', currentPage, 'totalPages:', totalPages);
     if (currentPage < totalPages) {
-      navigate(`?page=${currentPage + 1}`);
+      console.log('[handleNextPage] Setting page to:', currentPage + 1);
+      setSearchParams({ page: String(currentPage + 1) });
     }
   };
 
   const handlePrevPage = () => {
+    console.log('[handlePrevPage] Called, currentPage:', currentPage);
     if (currentPage > 1) {
-      navigate(`?page=${currentPage - 1}`);
+      console.log('[handlePrevPage] Setting page to:', currentPage - 1);
+      setSearchParams({ page: String(currentPage - 1) });
     }
   };
 

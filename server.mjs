@@ -158,16 +158,50 @@ export const lambdaHandler = async (event, context) => {
     // Check if this is a static asset request
     const path = event.rawPath || event.path || "/";
     if (path.startsWith('/assets/')) {
-      // Redirect static asset requests to S3
-      const s3Url = `https://${process.env.S3_BUCKET_NAME || 'shopify-invoice-app-assets-442327347395'}.s3.amazonaws.com${path}`;
-      return {
-        statusCode: 302,
-        headers: {
-          'Location': s3Url,
-          'Cache-Control': 'public, max-age=31536000, immutable',
-        },
-        body: '',
-      };
+      // Serve static assets from S3
+      const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+      const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
+      const bucketName = process.env.APP_ASSETS_BUCKET_NAME;
+      
+      try {
+        const command = new GetObjectCommand({
+          Bucket: bucketName,
+          Key: path.substring(1), // Remove leading slash
+        });
+        
+        const s3Response = await s3.send(command);
+        const body = await s3Response.Body.transformToByteArray();
+        
+        // Determine content type from file extension
+        const ext = path.split('.').pop();
+        const contentTypes = {
+          'js': 'application/javascript',
+          'css': 'text/css',
+          'json': 'application/json',
+          'png': 'image/png',
+          'jpg': 'image/jpeg',
+          'jpeg': 'image/jpeg',
+          'svg': 'image/svg+xml',
+          'woff': 'font/woff',
+          'woff2': 'font/woff2',
+        };
+        
+        return {
+          statusCode: 200,
+          headers: {
+            'Content-Type': contentTypes[ext] || 'application/octet-stream',
+            'Cache-Control': 'public, max-age=31536000, immutable',
+          },
+          body: Buffer.from(body).toString('base64'),
+          isBase64Encoded: true,
+        };
+      } catch (err) {
+        console.error('Error serving asset from S3:', err);
+        return {
+          statusCode: 404,
+          body: 'Asset not found',
+        };
+      }
     }
 
     // Create standard Request from API Gateway event

@@ -34,6 +34,7 @@ Write-Info "Lambda Function: $FunctionName"
 
 # Set environment
 $env:NODE_ENV = $Environment
+$env:S3_BUCKET_NAME = $BucketName
 
 # Build the application
 if (-not $SkipBuild) {
@@ -96,19 +97,11 @@ Write-Success "Deployment package prepared"
 
 # Deploy client assets to S3
 Write-Info "`n[3/6] Deploying client assets to S3..."
-$ClientPath = ".\build\client"
-if (Test-Path $ClientPath) {
-    aws s3 sync $ClientPath "s3://$BucketName/assets/" `
+$ClientAssetsPath = ".\build\client\assets"
+if (Test-Path $ClientAssetsPath) {
+    aws s3 sync $ClientAssetsPath "s3://$BucketName/assets/" `
         --region $Region `
-        --cache-control "public, max-age=31536000, immutable" `
-        --exclude "*.html"
-    
-    # Upload HTML files with no-cache
-    aws s3 sync $ClientPath "s3://$BucketName/assets/" `
-        --region $Region `
-        --exclude "*" `
-        --include "*.html" `
-        --cache-control "public, max-age=0, must-revalidate"
+        --cache-control "public, max-age=31536000, immutable"
     
     if ($LASTEXITCODE -ne 0) {
         Write-Error "S3 sync failed!"
