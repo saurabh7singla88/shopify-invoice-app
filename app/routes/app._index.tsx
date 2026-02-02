@@ -219,7 +219,7 @@ export default function Index() {
   };
 
   return (
-    <s-page heading="APP NAME">
+    <s-page heading="Invoice Ninja">
       <s-section>
         {error && (
           <s-banner tone="critical">
