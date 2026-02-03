@@ -4,8 +4,13 @@ const s3Client = new S3Client({
   region: process.env.AWS_REGION || "us-east-1",
 });
 
-// Use the same bucket as the app's static assets (CloudFormation AssetsBucket)
-const BUCKET_NAME = process.env.S3_BUCKET_NAME || "shopify-invoice-app-assets-442327347395";
+// Bucket for storing uploaded images (logos, signatures)
+// This should be set via Lambda environment variable S3_BUCKET_NAME
+const BUCKET_NAME = process.env.S3_BUCKET_NAME || "";
+
+if (!BUCKET_NAME) {
+  console.error("S3_BUCKET_NAME environment variable is not set");
+}
 
 /**
  * Upload an image file to S3

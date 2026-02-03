@@ -98,18 +98,33 @@ Write-Success "Deployment package prepared"
 # Deploy client assets to S3
 Write-Info "`n[3/6] Deploying client assets to S3..."
 $ClientAssetsPath = ".\build\client\assets"
+$ClientPublicPath = ".\build\client"
+
 if (Test-Path $ClientAssetsPath) {
+    # Sync JavaScript/CSS assets
     aws s3 sync $ClientAssetsPath "s3://$BucketName/assets/" `
         --region $Region `
         --cache-control "public, max-age=31536000, immutable"
     
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "S3 sync failed!"
+        Write-Error "Assets sync failed!"
         exit 1
     }
+    
+    # Sync public files (favicon, templates, etc.) - exclude assets folder
+    aws s3 sync $ClientPublicPath "s3://$BucketName/" `
+        --region $Region `
+        --exclude "assets/*" `
+        --cache-control "public, max-age=31536000, immutable"
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Public files sync failed!"
+        exit 1
+    }
+    
     Write-Success "Client assets deployed to S3"
 } else {
-    Write-Error "Client build not found at $ClientPath"
+    Write-Error "Client build not found at $ClientAssetsPath"
     exit 1
 }
 

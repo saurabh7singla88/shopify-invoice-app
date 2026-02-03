@@ -156,10 +156,17 @@ export const lambdaHandler = async (event, context) => {
   try {
     console.log("Lambda Event:", JSON.stringify(event, null, 2));
 
-    // Check if this is a static asset request
+    // Check if this is a static asset or public file request
     const path = event.rawPath || event.path || "/";
-    if (path.startsWith('/assets/')) {
-      // Serve static assets from S3
+    const isStaticFile = path.startsWith('/assets/') || 
+                         path.startsWith('/templates/') || 
+                         path.endsWith('.ico') || 
+                         path.endsWith('.svg') || 
+                         path.endsWith('.png') || 
+                         path.endsWith('.jpg');
+    
+    if (isStaticFile) {
+      // Serve static files from S3
       const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
       const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
       const bucketName = process.env.APP_ASSETS_BUCKET_NAME;
@@ -183,6 +190,7 @@ export const lambdaHandler = async (event, context) => {
           'jpg': 'image/jpeg',
           'jpeg': 'image/jpeg',
           'svg': 'image/svg+xml',
+          'ico': 'image/x-icon',
           'woff': 'font/woff',
           'woff2': 'font/woff2',
         };
@@ -197,10 +205,10 @@ export const lambdaHandler = async (event, context) => {
           isBase64Encoded: true,
         };
       } catch (err) {
-        console.error('Error serving asset from S3:', err);
+        console.error('Error serving static file from S3:', err);
         return {
           statusCode: 404,
-          body: 'Asset not found',
+          body: 'File not found',
         };
       }
     }
