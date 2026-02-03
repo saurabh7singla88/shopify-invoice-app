@@ -61,6 +61,11 @@
       "Type": "String",
       "Default": "AuditLogs",
       "Description": "Name of the DynamoDB table for audit logs"
+    },
+    "InvoiceLambdaName": {
+      "Type": "String",
+      "Default": "shopify-generate-invoice",
+      "Description": "Name of the Lambda function for invoice generation"
     }
   },
   "Resources": {
@@ -255,7 +260,8 @@
             "SHOPIFY_API_SECRET": { "Ref": "ShopifyApiSecret" },
             "SHOPIFY_APP_URL": { "Ref": "ShopifyAppUrl" },
             "S3_BUCKET_NAME": { "Ref": "AssetsBucket" },
-            "APP_ASSETS_BUCKET_NAME": { "Ref": "AssetsBucket" }
+            "APP_ASSETS_BUCKET_NAME": { "Ref": "AssetsBucket" },
+            "INVOICE_LAMBDA_NAME": { "Ref": "InvoiceLambdaName" }
           }
         }
       }
