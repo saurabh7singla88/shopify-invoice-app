@@ -12,7 +12,6 @@ process.env.SHOPIFY_API_KEY = 'test-key';
 process.env.SHOPIFY_API_SECRET = 'test-secret';
 process.env.SHOPIFY_WEBHOOK_SECRET = 'test-secret'; // Use same secret for simplicity
 process.env.NODE_ENV = 'production';
-process.env.ORDERS_TABLE_NAME = 'ShopifyOrders';
 // process.env.S3_BUCKET_NAME = 'your-bucket-name'; // Unset, code should handle it gracefully
 
 const SECRET = process.env.SHOPIFY_API_SECRET;

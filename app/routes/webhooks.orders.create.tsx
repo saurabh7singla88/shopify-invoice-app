@@ -4,9 +4,10 @@ import dynamodb from "../db.server";
 import { PutCommand, QueryCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
+import { TABLE_NAMES } from "../constants/tables";
 
-const TABLE_NAME = process.env.ORDERS_TABLE_NAME || "ShopifyOrders";
-const SHOPS_TABLE = process.env.SHOPS_TABLE_NAME || "Shops";
+const TABLE_NAME = TABLE_NAMES.ORDERS;
+const SHOPS_TABLE = TABLE_NAMES.SHOPS;
 const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || "us-east-1" });
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -60,7 +61,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     
     try {
       const existingInvoice = await dynamodb.send(new QueryCommand({
-        TableName: process.env.INVOICES_TABLE_NAME || "Invoices",
+        TableName: TABLE_NAMES.INVOICES,
         IndexName: "orderId-index",
         KeyConditionExpression: "orderId = :orderId",
         ExpressionAttributeValues: {

@@ -4,8 +4,9 @@ import dynamodb from "../db.server";
 import { GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { S3Client, CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { createHmac, timingSafeEqual } from "crypto";
+import { TABLE_NAMES } from "../constants/tables";
 
-const TABLE_NAME = process.env.ORDERS_TABLE_NAME || "ShopifyOrders";
+const TABLE_NAME = TABLE_NAMES.ORDERS;
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || "";
 const s3Client = new S3Client({ region: process.env.AWS_REGION || "us-east-1" });
 

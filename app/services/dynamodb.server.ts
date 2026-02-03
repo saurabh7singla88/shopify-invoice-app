@@ -1,5 +1,6 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { TABLE_NAMES } from "../constants/tables";
 
 const client = new DynamoDBClient({
   region: process.env.AWS_REGION || "us-east-1",
@@ -7,11 +8,11 @@ const client = new DynamoDBClient({
 
 const dynamodb = DynamoDBDocumentClient.from(client);
 
-// Table names from environment variables
-const SHOPS_TABLE = process.env.SHOPS_TABLE_NAME || "Shops";
-const TEMPLATES_TABLE = process.env.TEMPLATES_TABLE_NAME || "Templates";
-const TEMPLATE_CONFIG_TABLE = process.env.TEMPLATE_CONFIG_TABLE_NAME || "TemplateConfigurations";
-const AUDIT_LOGS_TABLE = process.env.AUDIT_LOGS_TABLE_NAME || "AuditLogs";
+// Table name constants
+const SHOPS_TABLE = TABLE_NAMES.SHOPS;
+const TEMPLATES_TABLE = TABLE_NAMES.TEMPLATES;
+const TEMPLATE_CONFIG_TABLE = TABLE_NAMES.TEMPLATE_CONFIGURATIONS;
+const AUDIT_LOGS_TABLE = TABLE_NAMES.AUDIT_LOGS;
 
 /**
  * Create or update shop record on app installation

@@ -5,16 +5,17 @@ import {
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
 import { DynamoDBSessionStorageWrapper } from "./session-storage-wrapper";
+import { TABLE_NAMES } from "./constants/tables";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
   apiVersion: ApiVersion.October25,
-  scopes: process.env.SCOPES?.split(","),
+  scopes: ["read_orders", "read_customers"],
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
   sessionStorage: new DynamoDBSessionStorageWrapper({
-    sessionTableName: process.env.DYNAMODB_SESSION_TABLE || "shopify_sessions",
+    sessionTableName: TABLE_NAMES.SESSIONS,
     shopIndexName: 'shop_index',
     config: {
       region: process.env.AWS_REGION || "us-east-1",

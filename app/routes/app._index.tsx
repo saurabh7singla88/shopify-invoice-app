@@ -12,13 +12,15 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import dynamodb from "../db.server";
 import { S3Client } from "@aws-sdk/client-s3";
 
+import { TABLE_NAMES } from "../constants/tables";
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   
   // Setup shop in background (non-blocking)
   setupShop(session.shop, session.accessToken, session.scope || "");
   
-  const TABLE_NAME = process.env.ORDERS_TABLE_NAME || "ShopifyOrders";
+  const TABLE_NAME = TABLE_NAMES.ORDERS;
   const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || "";
   const s3Client = new S3Client({ region: process.env.AWS_REGION || "us-east-1" });
 

@@ -61,11 +61,6 @@
       "Type": "String",
       "Default": "AuditLogs",
       "Description": "Name of the DynamoDB table for audit logs"
-    },
-    "Scopes": {
-      "Type": "String",
-      "Default": "read_orders,read_customers",
-      "Description": "Comma-separated list of Shopify API scopes"
     }
   },
   "Resources": {
@@ -259,16 +254,8 @@
             "SHOPIFY_API_KEY": { "Ref": "ShopifyApiKey" },
             "SHOPIFY_API_SECRET": { "Ref": "ShopifyApiSecret" },
             "SHOPIFY_APP_URL": { "Ref": "ShopifyAppUrl" },
-            "SCOPES": { "Ref": "Scopes" },
-            "DYNAMODB_SESSION_TABLE": { "Ref": "DynamoDBSessionTable" },
             "S3_BUCKET_NAME": { "Ref": "AssetsBucket" },
-            "APP_ASSETS_BUCKET_NAME": { "Ref": "AssetsBucket" },
-            "SHOPS_TABLE_NAME": { "Ref": "ShopsTableName" },
-            "ORDERS_TABLE_NAME": { "Ref": "OrdersTableName" },
-            "TEMPLATES_TABLE_NAME": { "Ref": "TemplatesTableName" },
-            "TEMPLATE_CONFIG_TABLE_NAME": { "Ref": "TemplateConfigTableName" },
-            "INVOICES_TABLE_NAME": { "Ref": "InvoicesTableName" },
-            "AUDIT_LOGS_TABLE_NAME": { "Ref": "AuditLogsTableName" }
+            "APP_ASSETS_BUCKET_NAME": { "Ref": "AssetsBucket" }
           }
         }
       }
