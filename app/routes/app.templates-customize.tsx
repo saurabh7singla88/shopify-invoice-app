@@ -4,6 +4,7 @@ import { useLoaderData, useSearchParams, Form, useNavigation, useNavigate, useAc
 import { authenticate } from "../shopify.server";
 import { saveTemplateConfiguration, getTemplateConfiguration } from "../services/dynamodb.server";
 import { uploadImageToS3 } from "../services/s3.server";
+import { INDIAN_STATES } from "../constants/indianStates";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -40,12 +41,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       legalName: { label: "Legal Name", type: "text", default: existingConfig?.company?.legalName || "", envVar: "COMPANY_LEGAL_NAME" },
       addressLine1: { label: "Address Line 1", type: "text", default: existingConfig?.company?.addressLine1 || "", envVar: "COMPANY_ADDRESS_LINE1" },
       addressLine2: { label: "Address Line 2", type: "text", default: existingConfig?.company?.addressLine2 || "", envVar: "COMPANY_ADDRESS_LINE2" },
-      state: { label: "State", type: "text", default: existingConfig?.company?.state || "", envVar: "COMPANY_STATE" },
+      city: { label: "City", type: "text", default: existingConfig?.company?.city || "", envVar: "COMPANY_CITY" },
+      state: { label: "State", type: "select", default: existingConfig?.company?.state || "", options: INDIAN_STATES, envVar: "COMPANY_STATE" },
+      pincode: { label: "Pincode", type: "text", default: existingConfig?.company?.pincode || "", envVar: "COMPANY_PINCODE" },
       gstin: { label: "GSTIN", type: "text", default: existingConfig?.company?.gstin || "", envVar: "COMPANY_GSTIN" },
       supportEmail: { label: "Support Email", type: "email", default: existingConfig?.company?.supportEmail || "", envVar: "COMPANY_SUPPORT_EMAIL" },
       phone: { label: "Phone", type: "text", default: existingConfig?.company?.phone || "", envVar: "COMPANY_PHONE" },
-      ownerEmail: { label: "Invoice Notification Email", type: "email", default: existingConfig?.company?.ownerEmail || "", envVar: "OWNER_EMAIL" },
-      sendEmailToCustomer: { label: "Send Invoice to Customer", type: "checkbox", default: existingConfig?.company?.sendEmailToCustomer || false, envVar: "SEND_EMAIL_TO_CUSTOMER" },
       logoFilename: { label: "Logo Filename", type: "file", default: existingConfig?.company?.logoFilename || "logo.JPG", envVar: "COMPANY_LOGO_FILENAME" },
       signatureFilename: { label: "Signature Filename", type: "file", default: existingConfig?.company?.signatureFilename || "", envVar: "COMPANY_SIGNATURE_FILENAME" },
       includeSignature: { label: "Include Signature in Invoice", type: "checkbox", default: existingConfig?.company?.includeSignature !== undefined ? existingConfig?.company?.includeSignature : true, envVar: "INCLUDE_SIGNATURE" },
@@ -125,12 +126,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     legalName: getFormValue("company.legalName", existingConfig.company?.legalName || ""),
     addressLine1: getFormValue("company.addressLine1", existingConfig.company?.addressLine1 || ""),
     addressLine2: getFormValue("company.addressLine2", existingConfig.company?.addressLine2 || ""),
+    city: getFormValue("company.city", existingConfig.company?.city || ""),
     state: getFormValue("company.state", existingConfig.company?.state || ""),
+    pincode: getFormValue("company.pincode", existingConfig.company?.pincode || ""),
     gstin: getFormValue("company.gstin", existingConfig.company?.gstin || ""),
     supportEmail: getFormValue("company.supportEmail", existingConfig.company?.supportEmail || ""),
     phone: getFormValue("company.phone", existingConfig.company?.phone || ""),
-    ownerEmail: getFormValue("company.ownerEmail", existingConfig.company?.ownerEmail || ""),
-    sendEmailToCustomer: formData.get("company.sendEmailToCustomer") === "on" || existingConfig.company?.sendEmailToCustomer || false,
     logoFilename: logoS3Key,
     includeSignature: includeSignature,
     signatureFilename: signatureS3Key,
@@ -227,6 +228,7 @@ export default function CustomizeTemplate() {
       case "select":
         return (
           <select name={fieldName} defaultValue={config.default} style={{ ...commonStyle, cursor: 'pointer' }}>
+            {!config.default && <option value="">Select {config.label}</option>}
             {config.options?.map((option: string) => (
               <option key={option} value={option}>{option}</option>
             ))}
@@ -515,23 +517,31 @@ export default function CustomizeTemplate() {
                 </p>
                 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                  {Object.entries(configuration.company).map(([key, config]: [string, any]) => (
-                    <div key={key} style={{ gridColumn: ['addressLine1', 'addressLine2'].includes(key) ? 'span 2' : 'span 1' }}>
-                      <label style={{ 
-                        display: 'block', 
-                        fontSize: '13px', 
-                        fontWeight: '500', 
-                        marginBottom: '6px',
-                        color: '#374151'
-                      }}>
-                        {config.label}
-                      </label>
-                      {renderFormField(key, config, "company")}
-                      <p style={{ fontSize: '10px', color: '#9ca3af', marginTop: '4px' }}>
-                        <code style={{ backgroundColor: '#f3f4f6', padding: '1px 4px', borderRadius: '3px', fontSize: '10px' }}>{config.envVar}</code>
-                      </p>
-                    </div>
-                  ))}
+                  {Object.entries(configuration.company).map(([key, config]: [string, any]) => {
+                    // Determine grid column span
+                    let gridColumn = 'span 1';
+                    if (['addressLine1', 'addressLine2'].includes(key)) {
+                      gridColumn = 'span 2';
+                    }
+                    
+                    return (
+                      <div key={key} style={{ gridColumn }}>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '13px', 
+                          fontWeight: '500', 
+                          marginBottom: '6px',
+                          color: '#374151'
+                        }}>
+                          {config.label}
+                        </label>
+                        {renderFormField(key, config, "company")}
+                        <p style={{ fontSize: '10px', color: '#9ca3af', marginTop: '4px' }}>
+                          <code style={{ backgroundColor: '#f3f4f6', padding: '1px 4px', borderRadius: '3px', fontSize: '10px' }}>{config.envVar}</code>
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
