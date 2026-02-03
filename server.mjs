@@ -74,7 +74,8 @@ function createRequest(event) {
   let requestBody = null;
   if (body) {
     if (isBase64Encoded) {
-      requestBody = Buffer.from(body, "base64").toString("utf-8");
+      // Keep binary data as Buffer, don't convert to UTF-8 string
+      requestBody = Buffer.from(body, "base64");
     } else {
       requestBody = body;
     }
