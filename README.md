@@ -1,136 +1,161 @@
-# Invoice-1 Shopify App
+# Shopify Invoice App - GST Compliant
 
-A Shopify App built with **React Router v7** that runs on **AWS Lambda** (serverless). It handles Shopify webhooks (specifically `orders/create`) and stores order data in **AWS DynamoDB**.
+A Shopify App that automatically generates GST-compliant invoices for orders. Built with React Router v7 on AWS Lambda (serverless).
+
+## Features
+
+- ✅ Automatic GST-compliant invoice generation (CGST/SGST/IGST)
+- ✅ Customizable templates (colors, fonts, logo, company details)
+- ✅ Indian states support with dropdown
+- ✅ Order tracking (create, cancel, return)
+- ✅ S3 storage with secure URLs
+- ✅ Serverless architecture (auto-scaling, pay-per-use)
 
 ## Architecture
 
-- **Frontend/Server**: React Router v7 (Server-Side Rendering).
-- **Hosting**: AWS Lambda (via `@codegenie/serverless-express` adapter pattern).
-- **Database**: AWS DynamoDB (Tables: `shopify_sessions`, `ShopifyOrders`).
-- **Assets**: AWS S3 (served via helper in Lambda or directly).
-- **Auth**: HMAC signature verification for webhooks; Session tokens for Admin UI.
+**Tech Stack:** React Router v7 + AWS Lambda + API Gateway + DynamoDB + S3 + PDFKit
+
+```
+Shopify Store → API Gateway → Lambda (App) → DynamoDB (Sessions, Orders)
+                                    ↓
+                            Lambda (Invoice Gen) → S3 (PDFs)
+```
+
+## Quick Start
+
+```powershell
+# 1. Deploy infrastructure
+cd shopify-app-v2/invoice-1
+.\setup-aws.ps1
+
+# 2. Deploy code
+npm run build
+npm run deploy:aws
+
+# 3. Configure Shopify
+shopify app deploy
+
+# 4. Install on your store
+```
 
 ## Prerequisites
 
-- Node.js (v20+)
-- Shopify CLI
-- AWS CLI (configured with appropriate permissions)
-- PowerShell (for deployment scripts)
+- Node.js v20.19+
+- AWS CLI (configured)
+- Shopify CLI v3.x
+- AWS Account
+- Shopify Partner Account
 
-## Setup & Installation
+## Configuration
 
-1. **Install Dependencies**
-   ```powershell
-   npm install
-   ```
+### Environment Variables (via CloudFormation)
 
-2. **Environment Variables**
-   Create a `.env` file for local development (managed by Shopify CLI usually).
-   
-   For **AWS Lambda**, the following environment variables are required (configured in AWS Console or template):
-   - `SHOPIFY_API_KEY`: Your App API Key.
-   - `SHOPIFY_API_SECRET`: Your App API Secret.
-   - `SHOPIFY_APP_URL`: The Lambda URL (or custom domain).
-   - `SCOPES`: `write_products,read_orders` (etc).
-   - `SHOPIFY_WEBHOOK_SECRET`: **Important!** If you manually registered webhooks in Shopify Admin settings, this is the hash key shown there. It is *different* from the App API Secret.
-   - `SESSION_TABLE_NAME`: `shopify_sessions` (default).
-   - `SHOP_CUSTOM_DOMAIN`: (Optional)
+| Variable | Description |
+|----------|-------------|
+| `SHOPIFY_API_KEY` | App Client ID |
+| `SHOPIFY_API_SECRET` | App Client Secret |
+| `SHOPIFY_APP_URL` | Lambda URL |
+| `INVOICE_LAMBDA_NAME` | `shopify-generate-invoice` |
 
-## Local Development
+### Critical Settings (shopify.app.toml)
 
-Run the Shopify dev server:
-```powershell
-npm run dev
+```toml
+[access_scopes]
+scopes = "read_orders,read_customers"
+use_legacy_install_flow = false  # REQUIRED for embedded apps
+
+automatically_update_urls_on_dev = false  # Prevents URL overwrites
 ```
-This uses the Shopify CLI to tunnel your local environment.
 
-## Deployment to AWS
+## Deployment
 
-The project includes PowerShell scripts to simplify deploying to AWS Lambda.
-
-### 1. Build & Deploy
-To build the project, upload assets to S3, and update the Lambda function code:
-
+**Full deployment:**
 ```powershell
 npm run deploy:aws
 ```
-*Script used:* `deploy.ps1`
-*Default Region:* `us-east-1`
 
-### 2. Skip Build (Code Update Only)
-If you only changed server code and don't need to rebuild client assets:
+**Skip build:**
 ```powershell
 npm run deploy:aws:skip-build
 ```
 
-### AWS Resources
-- **Lambda Function**: `shopify-invoice-app`
-- **S3 Bucket**: `shopify-invoice-app-assets-[account-id]`
-- **DynamoDB Tables**:
-  - `shopify_sessions`: Stores OAuth sessions.
-  - `ShopifyOrders`: Stores incoming webhook payloads.
-
-## Webhooks
-
-The app handles three order webhooks: `orders/create`, `orders/cancelled`, and `orders/updated`.
-
-### Configuration
-
-Webhooks are declared in `shopify.app.toml` and automatically registered when you deploy:
-
-```powershell
-shopify app deploy
-```
-
-**Important:** Order webhooks contain protected customer data. Before deploying, you must request access:
-
-1. Go to [partners.shopify.com](https://partners.shopify.com) → Your App
-2. Left menu → **API Access**
-3. Click button in **"Access requests / Protected customer data access"** section
-4. Click **"Select"** in "Select your data use and reasons" and check what is required for your app
-5. Save, then you can deploy your app!
-
-### Handlers
-- **orders/create**: Creates invoice and stores in DynamoDB
-- **orders/cancelled**: Updates status to "Cancelled", moves invoice to cancelled-invoices/
-- **orders/updated**: Updates status to "Returned" for refunded orders
-
-### Verification
-
-Check webhooks in Shopify Admin → Settings → Notifications → Webhooks, or visit `/app/setup` in your app.
-
-### Testing
-
-```powershell
-# Watch Lambda logs
-aws logs tail /aws/lambda/shopify-invoice-app-ShopifyAppFunction --follow --region us-east-1
-
-# Check DynamoDB
-aws dynamodb get-item --table-name ShopifyOrders --key '{"name":{"S":"#1001"}}' --region us-east-1
-```
-
-### Manual vs Automatic Registration
-- **Automatic**: The app attempts to register `orders/create` via the API. This often fails for "Protected Customer Data" reasons if the app is not fully approved.
-- **Manual**: You can creating the webhook in **Shopify Admin -> Settings -> Notifications -> Webhooks**.
-  - **URL**: `https://<your-lambda-url>/webhooks/orders/create`
-  - **Secret**: You must update the `SHOPIFY_WEBHOOK_SECRET` env var in AWS Lambda with the key provided in the "Webhooks" creation panel. The app checks *both* the App Secret and this Webhook Secret for HMAC verification.
-
-## Troubleshooting
-
-### Checking Logs
-Use CloudWatch logs to debug errors (500s 401s, etc).
+**View logs:**
 ```powershell
 aws logs tail /aws/lambda/shopify-invoice-app --follow
 ```
 
-### Common Errors
-- **401 Unauthorized (Webhook)**: 
-  - Check HMAC signature.
-  - Ensure `SHOPIFY_WEBHOOK_SECRET` matches the secret in Shopify Admin if you manually created the webhook.
-- **500 Internal Server Error (DynamoDB)**:
-  - Check IAM Role permissions. The Lambda needs `dynamodb:PutItem` on the `ShopifyOrders` table.
-- **"Handling response" / Auth Loop (Embedded App)**:
-  - Ensure `shopify.app.toml` has `use_legacy_install_flow = false` under `[access_scopes]`
-  - Run `shopify app deploy` to update the config
-  - **Reinstall the app** on your development store (required for managed installation)
-  - This is required for the token exchange authentication strategy used in embedded apps
+## Troubleshooting
+
+### 401 Webhook Errors
+- Check `SHOPIFY_WEBHOOK_SECRET` matches Shopify Admin → Settings → Notifications
+
+### Authentication Loop
+1. Set `use_legacy_install_flow = false` in shopify.app.toml
+2. Run `shopify app deploy`
+3. **Reinstall app** on store
+
+### Lambda Timeout
+```powershell
+aws lambda update-function-configuration `
+  --function-name shopify-invoice-app `
+  --timeout 60 --memory-size 2048
+```
+
+### Assets Not Loading
+```powershell
+aws s3 sync ./build/client s3://your-bucket/assets/ --delete
+```
+
+## Cost Estimate
+
+**~$0-15/month** for low-medium traffic
+
+- Lambda: $0-2
+- API Gateway: $0-2
+- DynamoDB: $0-5
+- S3: $0-2
+- CloudWatch: $0-3
+
+## Project Structure
+
+```
+shopify-app-v2/invoice-1/
+├── app/                      # React Router app
+│   ├── routes/              # Webhook handlers
+│   └── constants/           # Table names, states
+├── build/                   # Compiled output
+├── cloudformation-template.json  # Infrastructure
+└── server.lambda.mjs        # Lambda entry point
+
+lambda-generate-invoice/
+├── index.mjs                # Invoice Lambda handler
+├── generators/templates/    # PDF templates
+└── services/                # S3, config services
+```
+
+## Key Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Local development |
+| `npm run build` | Build for production |
+| `npm run deploy:aws` | Deploy to AWS |
+
+## Additional Documentation
+
+- [AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md) - Detailed deployment guide
+- [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) - Step-by-step checklist
+- [LOCAL_SETUP.md](LOCAL_SETUP.md) - Local dev setup
+- [AI_CONTEXT.md](AI_CONTEXT.md) - Technical architecture (for AI models)
+
+## Request Protected Data Access
+
+Before deploying:
+1. Go to partners.shopify.com → Your App → API Access
+2. Click "Access requests / Protected customer data access"
+3. Select required data uses
+4. Submit request
+
+---
+
+**Built for Indian merchants needing GST-compliant invoices**
