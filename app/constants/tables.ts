@@ -10,4 +10,5 @@ export const TABLE_NAMES = {
   TEMPLATE_CONFIGURATIONS: "TemplateConfigurations",
   INVOICES: "Invoices",
   AUDIT_LOGS: "AuditLogs",
+  SHOPIFY_ORDER_ITEMS: "ShopifyOrderItems",
 } as const;

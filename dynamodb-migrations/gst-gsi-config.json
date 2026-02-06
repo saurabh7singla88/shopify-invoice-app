@@ -1,0 +1,26 @@
+[
+  {
+    "IndexName": "shop-yearMonth-index",
+    "KeySchema": [
+      {"AttributeName": "shop", "KeyType": "HASH"},
+      {"AttributeName": "yearMonth_invoiceDate", "KeyType": "RANGE"}
+    ],
+    "Projection": {"ProjectionType": "ALL"}
+  },
+  {
+    "IndexName": "shop-hsn-index",
+    "KeySchema": [
+      {"AttributeName": "shop", "KeyType": "HASH"},
+      {"AttributeName": "hsn_yearMonth", "KeyType": "RANGE"}
+    ],
+    "Projection": {"ProjectionType": "ALL"}
+  },
+  {
+    "IndexName": "shop-taxRate-index",
+    "KeySchema": [
+      {"AttributeName": "shop", "KeyType": "HASH"},
+      {"AttributeName": "taxRate_yearMonth", "KeyType": "RANGE"}
+    ],
+    "Projection": {"ProjectionType": "ALL"}
+  }
+]

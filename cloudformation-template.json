@@ -66,6 +66,11 @@
       "Type": "String",
       "Default": "shopify-generate-invoice",
       "Description": "Name of the Lambda function for invoice generation"
+    },
+    "ShopifyOrderItemsTableName": {
+      "Type": "String",
+      "Default": "ShopifyOrderItems",
+      "Description": "Name of the DynamoDB table for order items (GST reporting data)"
     }
   },
   "Resources": {
@@ -147,7 +152,8 @@
                     "dynamodb:UpdateItem",
                     "dynamodb:DeleteItem",
                     "dynamodb:Query",
-                    "dynamodb:Scan"
+                    "dynamodb:Scan",
+                    "dynamodb:BatchWriteItem"
                   ],
                   "Resource": [
                     {
@@ -191,6 +197,12 @@
                     },
                     {
                       "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AuditLogsTableName}/index/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ShopifyOrderItemsTableName}"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ShopifyOrderItemsTableName}/index/*"
                     }
                   ]
                 }
@@ -261,7 +273,8 @@
             "SHOPIFY_APP_URL": { "Ref": "ShopifyAppUrl" },
             "S3_BUCKET_NAME": { "Ref": "AssetsBucket" },
             "APP_ASSETS_BUCKET_NAME": { "Ref": "AssetsBucket" },
-            "INVOICE_LAMBDA_NAME": { "Ref": "InvoiceLambdaName" }
+            "INVOICE_LAMBDA_NAME": { "Ref": "InvoiceLambdaName" },
+            "SHOPIFY_ORDER_ITEMS_TABLE": { "Ref": "ShopifyOrderItemsTableName" }
           }
         }
       }
@@ -527,6 +540,105 @@
           }
         ]
       }
+    },
+    "ShopifyOrderItemsTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Ref": "ShopifyOrderItemsTableName" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "shop",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "orderNumber_lineItemIdx",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "yearMonth_invoiceDate",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "hsn_yearMonth",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "taxRate_yearMonth",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "shop",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "orderNumber_lineItemIdx",
+            "KeyType": "RANGE"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "shop-yearMonth-index",
+            "KeySchema": [
+              {
+                "AttributeName": "shop",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "yearMonth_invoiceDate",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            }
+          },
+          {
+            "IndexName": "shop-hsn-index",
+            "KeySchema": [
+              {
+                "AttributeName": "shop",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "hsn_yearMonth",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            }
+          },
+          {
+            "IndexName": "shop-taxRate-index",
+            "KeySchema": [
+              {
+                "AttributeName": "shop",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "taxRate_yearMonth",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": "Shopify-Invoice-App"
+          },
+          {
+            "Key": "Purpose",
+            "Value": "GST-Reporting"
+          }
+        ]
+      }
     }
   },
   "Outputs": {
@@ -575,6 +687,10 @@
     "AuditLogsTableName": {
       "Description": "DynamoDB Audit Logs Table Name",
       "Value": { "Ref": "AuditLogsTableName" }
+    },
+    "ShopifyOrderItemsTableName": {
+      "Description": "DynamoDB ShopifyOrderItems Table Name",
+      "Value": { "Ref": "ShopifyOrderItemsTableName" }
     }
   }
 }

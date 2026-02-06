@@ -28,6 +28,7 @@ export default function App() {
       <s-app-nav>
         <s-link href="/app">Home</s-link>
         <s-link href="/app/templates">Templates</s-link>
+        <s-link href="/app/reports">Reports</s-link>
       </s-app-nav>
       <Outlet />
     </AppProvider>

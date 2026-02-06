@@ -1,10 +1,11 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import dynamodb from "../db.server";
-import { GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, UpdateCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { S3Client, CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { createHmac, timingSafeEqual } from "crypto";
 import { TABLE_NAMES } from "../constants/tables";
+import { updateGSTReportingStatus } from "../services/gstReporting.server";
 
 const TABLE_NAME = TABLE_NAMES.ORDERS;
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || "";
@@ -181,6 +182,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     // Move invoice to shop's cancelled folder in S3
     const movedFiles = await moveInvoiceToFolder(orderName, shop, 'cancelled');
+    
+    // Update GST reporting data status to cancelled
+    try {
+      // Use order name directly (no need to query invoices)
+      const creditNoteId = `CN-${orderName}-01`;
+      
+      await updateGSTReportingStatus(
+        shop,
+        orderName,
+        "cancelled",
+        {
+          creditNoteId,
+          creditNoteDate: new Date().toISOString(),
+          cancellationReason: "order_cancelled"
+        }
+      );
+      
+      console.log(`GST reporting data updated to cancelled for order ${orderName}`);
+    } catch (gstError) {
+      console.error("Error updating GST reporting data:", gstError);
+      // Don't fail the webhook if GST update fails
+    }
     
     return new Response(JSON.stringify({
         success: true,

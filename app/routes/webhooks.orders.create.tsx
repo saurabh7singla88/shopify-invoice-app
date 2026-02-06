@@ -5,6 +5,7 @@ import { PutCommand, QueryCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { TABLE_NAMES } from "../constants/tables";
+import { writeOrderItems, type OrderLineItem } from "../services/gstReporting.server";
 
 const TABLE_NAME = TABLE_NAMES.ORDERS;
 const SHOPS_TABLE = TABLE_NAMES.SHOPS;
@@ -59,6 +60,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const orderId = payload.id?.toString() || payload.name;
     console.log(`[Idempotency Check] Checking for existing invoice with orderId: ${orderId}`);
     
+    let invoiceExists = false;
     try {
       const existingInvoice = await dynamodb.send(new QueryCommand({
         TableName: TABLE_NAMES.INVOICES,
@@ -71,29 +73,44 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }));
       
       if (existingInvoice.Items && existingInvoice.Items.length > 0) {
-        console.log(`[Idempotency] Invoice already exists for order ${orderId} (ID: ${existingInvoice.Items[0].invoiceId}), skipping duplicate processing`);
-        return new Response(
-          JSON.stringify({
-            success: true,
-            message: "Order already processed (duplicate webhook)",
-            invoiceId: existingInvoice.Items[0].invoiceId,
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+        console.log(`[Idempotency] Invoice already exists for order ${orderId} (ID: ${existingInvoice.Items[0].invoiceId})`);
+        invoiceExists = true;
+        
+        // Check if GST data exists - if not, write it even for duplicate webhooks
+        const existingGSTData = await dynamodb.send(new QueryCommand({
+          TableName: TABLE_NAMES.SHOPIFY_ORDER_ITEMS,
+          KeyConditionExpression: "shop = :shop AND begins_with(orderNumber_lineItemIdx, :orderNum)",
+          ExpressionAttributeValues: {
+            ":shop": shop,
+            ":orderNum": `${payload.name}#`
+          },
+          Limit: 1
+        }));
+        
+        if (existingGSTData.Items && existingGSTData.Items.length > 0) {
+          console.log(`[Idempotency] GST data already exists, skipping duplicate processing`);
+          return new Response(
+            JSON.stringify({
+              success: true,
+              message: "Order already processed (duplicate webhook)",
+              invoiceId: existingInvoice.Items[0].invoiceId,
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }
+          );
+        }
+        
+        console.log(`[Idempotency] Invoice exists but GST data missing - will write GST data only`);
+        // Continue to GST data writing section (skip order storage and invoice generation)
+      } else {
+        console.log(`[Idempotency] No existing invoice found for order ${orderId}, proceeding with full processing`);
       }
-      
-      console.log(`[Idempotency] No existing invoice found for order ${orderId}, proceeding with processing`);
     } catch (checkError) {
       console.log("[Idempotency] Error checking for existing invoice, proceeding:", checkError);
       // Continue processing if check fails
     }
-
-    // Generate unique ID and timestamp
-    const eventId = randomUUID();
-    const timestamp = new Date().toISOString();
 
     // Extract customer name from order addresses
     let customerName = '';
@@ -119,52 +136,118 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     
     console.log(`Customer name extracted: ${customerName}`);
 
-    // Prepare item for DynamoDB (following lambda-shopify-orderCreated.mjs logic)
-    const item = {
-      eventId,
-      name: payload.name, // Extract order name as partition key
-      timestamp,
-      status: "Created",
-      payload,
-      customerName, // Store extracted customer name at top level for easy access
-      customer: payload.customer || null,
-      currency: payload.currency || payload.presentment_currency || "INR",
-      total_price: payload.total_price || payload.current_total_price || "0.00",
-      financial_status: payload.financial_status || "pending",
-      sourceIP: payload.browser_ip || payload.client_details?.browser_ip || null,
-      shop, // Include shop domain
-      topic, // Include webhook topic
-      ttl: Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60, // 90 days expiration
-    };
+    // Generate unique ID and timestamp (used for both new and existing invoices)
+    const eventId = randomUUID();
+    const timestamp = new Date().toISOString();
 
-    // Store in DynamoDB
-    await dynamodb.send(
-      new PutCommand({
-        TableName: TABLE_NAME,
-        Item: item,
-      })
-    );
-
-    console.log(`Order stored successfully: ${eventId}`);
-
-    // Invoke invoice generation Lambda
-    try {
-      const invokeParams = {
-        FunctionName: process.env.INVOICE_LAMBDA_NAME || "shopify-generate-invoice",
-        InvocationType: "Event" as const, // Asynchronous invocation
-        Payload: Buffer.from(JSON.stringify({
-          ...payload,
-          shop,
-          shop_domain: shop,
-        }),
-        "utf8"),
+    // Only store order and invoke Lambda if invoice doesn't exist yet
+    if (!invoiceExists) {
+      // Prepare item for DynamoDB (following lambda-shopify-orderCreated.mjs logic)
+      const item = {
+        eventId,
+        name: payload.name, // Extract order name as partition key
+        timestamp,
+        status: "Created",
+        payload,
+        customerName, // Store extracted customer name at top level for easy access
+        customer: payload.customer || null,
+        currency: payload.currency || payload.presentment_currency || "INR",
+        total_price: payload.total_price || payload.current_total_price || "0.00",
+        financial_status: payload.financial_status || "pending",
+        sourceIP: payload.browser_ip || payload.client_details?.browser_ip || null,
+        shop, // Include shop domain
+        topic, // Include webhook topic
+        ttl: Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60, // 90 days expiration
       };
 
-      await lambdaClient.send(new InvokeCommand(invokeParams));
-      console.log("Invoice generation Lambda invoked successfully");
-    } catch (invokeError) {
-      console.error("Error invoking invoice Lambda:", invokeError);
-      // Continue even if invoice generation fails
+      // Store in DynamoDB
+      await dynamodb.send(
+        new PutCommand({
+          TableName: TABLE_NAME,
+          Item: item,
+        })
+      );
+
+      console.log(`Order stored successfully: ${eventId}`);
+    }
+
+    // Get shop configuration for GST info
+    let shopConfig: any = null;
+    try {
+      const shopResult = await dynamodb.send(new GetCommand({
+        TableName: SHOPS_TABLE,
+        Key: { shop }
+      }));
+      shopConfig = shopResult.Item;
+    } catch (shopError) {
+      console.log("Could not fetch shop config:", shopError);
+    }
+
+    // Only invoke Lambda if invoice doesn't exist yet
+    if (!invoiceExists) {
+      // Invoke invoice generation Lambda (async - non-blocking)
+      try {
+        const invokeParams = {
+          FunctionName: process.env.INVOICE_LAMBDA_NAME || "shopify-generate-invoice",
+          InvocationType: "Event" as const, // Asynchronous - don't wait for response
+          Payload: Buffer.from(JSON.stringify({
+            ...payload,
+            shop,
+            shop_domain: shop,
+          }),
+          "utf8"),
+        };
+
+        await lambdaClient.send(new InvokeCommand(invokeParams));
+        console.log("Invoice generation Lambda invoked successfully");
+      } catch (invokeError) {
+        console.error("Error invoking invoice generation:", invokeError);
+        // Continue even if invoice generation fails
+      }
+    }
+    // Write GST reporting data immediately (best effort)
+    console.log(`[GST] Checking line items - exists: ${!!payload.line_items}, count: ${payload.line_items?.length || 0}`);
+    if (payload.line_items && payload.line_items.length > 0) {
+      try {
+        console.log(`[GST] Processing ${payload.line_items.length} line items for order ${payload.name}`);
+        const invoiceDate = new Date().toISOString();
+        
+        // Determine customer state and place of supply
+        const customerState = 
+          payload.shipping_address?.province || 
+          payload.billing_address?.province || 
+          "Unknown";
+        
+        const placeOfSupply = payload.shipping_address?.province || customerState;
+        
+        // Get company state from shop config
+        const companyState = shopConfig?.state || "Unknown";
+        const companyGSTIN = shopConfig?.gstin;
+
+        await writeOrderItems(
+          shop,
+          {
+            invoiceId: "", // Will be updated by invoice Lambda
+            invoiceNumber: payload.name,
+            invoiceDate,
+            orderId: payload.id?.toString() || payload.name,
+            orderNumber: payload.name,
+            customerName,
+            customerState,
+            placeOfSupply,
+          },
+          payload.line_items as OrderLineItem[],
+          {
+            state: companyState,
+            gstin: companyGSTIN,
+          }
+        );
+        
+        console.log(`GST reporting data written for order ${payload.name}`);
+      } catch (gstError) {
+        console.error("Error writing GST reporting data:", gstError);
+        // Don't fail the webhook if GST reporting fails
+      }
     }
 
     return new Response(
