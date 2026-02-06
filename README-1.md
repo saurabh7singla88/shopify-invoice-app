@@ -143,13 +143,10 @@ lambda-generate-invoice/
 
 ## Additional Documentation
 
-**Documentation:**
-- [AI_CONTEXT.md](AI_CONTEXT.md) - Technical architecture for AI models
-- [AWS_DEPLOYMENT.md](other-md-files/AWS_DEPLOYMENT.md) - Detailed deployment guide
-- [DEPLOYMENT_CHECKLIST.md](other-md-files/DEPLOYMENT_CHECKLIST.md) - Step-by-step checklist
-- [LOCAL_SETUP.md](other-md-files/LOCAL_SETUP.md) - Local dev setup
-- [TEMPLATE_CONFIG_SAVE.md](other-md-files/TEMPLATE_CONFIG_SAVE.md) - Template config feature
-- [SHOP_TEMPLATE_SETUP.md](other-md-files/SHOP_TEMPLATE_SETUP.md) - Shop registration system
+- [AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md) - Detailed deployment guide
+- [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) - Step-by-step checklist
+- [LOCAL_SETUP.md](LOCAL_SETUP.md) - Local dev setup
+- [AI_CONTEXT.md](AI_CONTEXT.md) - Technical architecture (for AI models)
 
 ## Request Protected Data Access
 
