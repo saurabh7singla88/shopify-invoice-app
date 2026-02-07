@@ -73,6 +73,8 @@ export interface ShopifyLineItem {
   compare_at_price?: string;
   total_discount?: string;
   tax_lines?: Array<{ title: string; price: string; rate: number }>;
+  fulfillment_service?: string; // e.g. "manual", "snow-city-warehouse"
+  fulfillment_status?: string | null;
   product?: {
     metafields?: Array<{ namespace: string; key: string; value: string }>;
   };
@@ -152,6 +154,7 @@ export interface GSTLineItemMeta {
   sku: string | null;
   productTitle: string;
   hsn: string | null;
+  fulfillmentService: string | null; // Warehouse/location identifier
   quantity: number; // Original quantity (not expanded)
   unitPrice: number; // Per-unit price including tax
   discount: number; // Total discount applied to this line item
@@ -404,6 +407,7 @@ export function transformOrderToInvoice(
         sku: item.sku || null,
         productTitle: item.title || "",
         hsn: hsnCode,
+        fulfillmentService: item.fulfillment_service || null,
         quantity: itemQuantity,
         unitPrice: round2(sellingPriceWithTax),
         discount: round2(discountToUse),

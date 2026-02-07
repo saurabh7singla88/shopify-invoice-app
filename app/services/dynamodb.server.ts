@@ -257,3 +257,79 @@ export async function logAuditEvent(
     return { success: false, error };
   }
 }
+
+/**
+ * Get location state for a Shopify location ID.
+ * Fetches location details directly from Shopify Admin API.
+ *
+ * @param shop - The shop domain (e.g. "myshop.myshopify.com")
+ * @param locationId - The Shopify location ID (numeric)
+ * @param accessToken - The shop's Shopify Admin API access token
+ * @returns The state/province name, or null if not resolvable
+ */
+export async function getLocationState(
+  shop: string,
+  locationId: string | number,
+  accessToken: string
+): Promise<{ state: string | null; gstin: string | null; name: string | null }> {
+  const locId = locationId.toString();
+
+  let locationData: { state: string | null; gstin: string | null; name: string | null } = {
+    state: null,
+    gstin: null,
+    name: null,
+  };
+
+  try {
+    const apiUrl = `https://${shop}/admin/api/2024-01/locations/${locId}.json`;
+    console.log(`[Location] Fetching location ${locId} from Shopify API`);
+    
+    const response = await fetch(apiUrl, {
+      method: "GET",
+      headers: {
+        "X-Shopify-Access-Token": accessToken,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`[Location] Shopify API error: ${response.status} ${response.statusText}`);
+      return locationData;
+    }
+
+    const data = await response.json();
+    const location = data.location;
+
+    if (location) {
+      locationData = {
+        state: location.province || location.province_code || null,
+        gstin: null, // Shopify doesn't store GSTIN per location
+        name: location.name || null,
+      };
+
+      console.log(`[Location] Shopify API returned: name="${location.name}", ` +
+        `province="${location.province}", city="${location.city}", ` +
+        `country="${location.country_name}"`);
+    }
+  } catch (apiError) {
+    console.error(`[Location] Shopify API call failed:`, apiError);
+  }
+
+  return locationData;
+}
+
+/**
+ * Get the access token for a shop from the Shops table
+ */
+export async function getShopAccessToken(shop: string): Promise<string | null> {
+  try {
+    const result = await dynamodb.send(new GetCommand({
+      TableName: SHOPS_TABLE,
+      Key: { shop },
+    }));
+    return result.Item?.accessToken || null;
+  } catch (error) {
+    console.error(`[Shop] Error fetching access token for ${shop}:`, error);
+    return null;
+  }
+}

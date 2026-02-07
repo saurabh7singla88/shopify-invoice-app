@@ -50,6 +50,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       logoFilename: { label: "Logo Filename", type: "file", default: existingConfig?.company?.logoFilename || "logo.JPG", envVar: "COMPANY_LOGO_FILENAME" },
       signatureFilename: { label: "Signature Filename", type: "file", default: existingConfig?.company?.signatureFilename || "", envVar: "COMPANY_SIGNATURE_FILENAME" },
       includeSignature: { label: "Include Signature in Invoice", type: "checkbox", default: existingConfig?.company?.includeSignature !== undefined ? existingConfig?.company?.includeSignature : true, envVar: "INCLUDE_SIGNATURE" },
+      multiWarehouseGST: { label: "Multi-Warehouse GST", type: "checkbox", default: existingConfig?.company?.multiWarehouseGST || false, envVar: "MULTI_WAREHOUSE_GST", description: "Enable if you fulfill orders from multiple warehouse locations in different states. When enabled, the GST invoice will be generated at the time of fulfillment (instead of order creation) so that the correct warehouse state is used for intra-state vs inter-state tax calculation (CGST+SGST vs IGST)." },
     }
   };
   
@@ -135,6 +136,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     logoFilename: logoS3Key,
     includeSignature: includeSignature,
     signatureFilename: signatureS3Key,
+    multiWarehouseGST: formData.get("company.multiWarehouseGST") === "on",
   };
   
   try {
@@ -303,14 +305,21 @@ export default function CustomizeTemplate() {
       
       case "checkbox":
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <input
-              type="checkbox"
-              name={fieldName}
-              defaultChecked={config.default}
-              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-            />
-            <span style={{ fontSize: '12px', color: '#374151' }}>Enable this option</span>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="checkbox"
+                name={fieldName}
+                defaultChecked={config.default}
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: '12px', color: '#374151' }}>Enable this option</span>
+            </div>
+            {config.description && (
+              <p style={{ fontSize: '11px', color: '#6b7280', marginTop: '6px', lineHeight: '1.5', backgroundColor: '#f9fafb', padding: '8px 12px', borderRadius: '6px', borderLeft: '3px solid #d1d5db' }}>
+                {config.description}
+              </p>
+            )}
           </div>
         );
       

@@ -62,6 +62,7 @@ export interface ShopifyOrderItem {
   variantId?: string;
   sku?: string;
   productTitle: string;
+  fulfillmentService?: string; // Warehouse/location identifier
   
   // 4. Product Classification (HSN/SAC)
   hsn?: string;
@@ -176,6 +177,7 @@ export async function writeOrderItems(
       variantId: item.variantId || undefined,
       sku: item.sku || undefined,
       productTitle: item.productTitle,
+      fulfillmentService: item.fulfillmentService || undefined,
       
       // 4. Product Classification (HSN/SAC)
       hsn: item.hsn || undefined,

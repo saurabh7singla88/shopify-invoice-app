@@ -1,90 +1,20 @@
 import type { ActionFunctionArgs } from "react-router";
-import { authenticate } from "../shopify.server";
 import dynamodb from "../db.server";
-import { GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { S3Client, CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
-import { createHmac, timingSafeEqual } from "crypto";
+import { UpdateCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { TABLE_NAMES } from "../constants/tables";
+import {
+  validateWebhookHmac,
+  parseWebhookContext,
+  fetchShopConfig,
+  resolveLocationState,
+  checkInvoiceExists,
+  generateInvoicePipeline,
+  moveInvoiceToFolder,
+  jsonResponse,
+  errorResponse,
+} from "../services/webhookUtils.server";
 
 const TABLE_NAME = TABLE_NAMES.ORDERS;
-const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || "";
-const s3Client = new S3Client({ region: process.env.AWS_REGION || "us-east-1" });
-
-/**
- * Moves invoice file(s) from invoices/ folder to target folder in S3
- */
-async function moveInvoiceToFolder(orderName: string, shop: string, targetFolder: string = 'returned') {
-  const movedFiles: string[] = [];
-  const orderNameClean = orderName.replace("#", "");
-  const sanitizedShop = shop.replace(/\./g, '-');
-
-  if (!S3_BUCKET_NAME) {
-    console.warn("S3_BUCKET_NAME not set, skipping S3 operations");
-    return movedFiles;
-  }
-
-  try {
-    // List all objects with the order name in the shop's invoices folder
-    const listParams = {
-      Bucket: S3_BUCKET_NAME,
-      Prefix: `shops/${sanitizedShop}/invoices/`,
-    };
-
-    const listResult = await s3Client.send(new ListObjectsV2Command(listParams));
-
-    if (!listResult.Contents || listResult.Contents.length === 0) {
-      console.log(`No invoices found for order: ${orderName}`);
-      return movedFiles;
-    }
-
-    // Filter files that match the order name
-    const matchingFiles = listResult.Contents.filter((item) =>
-      item.Key?.includes(`invoice-${orderNameClean}`)
-    );
-
-    if (matchingFiles.length === 0) {
-      console.log(`No matching invoice files found for order: ${orderName}`);
-      return movedFiles;
-    }
-
-    // Move each matching file to the target folder
-    for (const file of matchingFiles) {
-      const sourceKey = file.Key;
-      if (!sourceKey) continue;
-      
-      const fileName = sourceKey.split("/").pop();
-      const destinationKey = `shops/${sanitizedShop}/${targetFolder}/${fileName}`;
-
-      // Copy to target folder
-      await s3Client.send(
-        new CopyObjectCommand({
-          Bucket: S3_BUCKET_NAME,
-          CopySource: `${S3_BUCKET_NAME}/${sourceKey}`,
-          Key: destinationKey,
-        })
-      );
-
-      console.log(`Copied ${sourceKey} to ${destinationKey}`);
-
-      // Delete from original location
-      await s3Client.send(
-        new DeleteObjectCommand({
-          Bucket: S3_BUCKET_NAME,
-          Key: sourceKey,
-        })
-      );
-
-      console.log(`Deleted ${sourceKey}`);
-      movedFiles.push(destinationKey);
-    }
-
-    return movedFiles;
-  } catch (error) {
-    console.error(`Error moving invoice to ${targetFolder} folder:`, error);
-    // Don't throw, just return what happened so far so we don't fail the webhook response
-    return movedFiles;
-  }
-}
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   console.log("Order update webhook received");
@@ -92,139 +22,268 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const rawBody = await requestClone.text();
 
   try {
-    console.log("Authenticating webhook...");
-    const receivedHmac = request.headers.get("x-shopify-hmac-sha256") || "";
-    const appSecret = process.env.SHOPIFY_API_SECRET || "";
-    const webhookSecret = process.env.SHOPIFY_WEBHOOK_SECRET || "";
+    // ── HMAC validation ──────────────────────────────────────────────────
+    const hmacError = validateWebhookHmac(request, rawBody);
+    if (hmacError) return hmacError;
 
-    const computeHmac = (secret: string) =>
-      secret
-        ? createHmac("sha256", secret).update(rawBody, "utf8").digest("base64")
-        : "";
-
-    const appHmac = computeHmac(appSecret);
-    const webhookHmac = computeHmac(webhookSecret);
-
-    const hmacMatch = (expected: string, actual: string) => {
-      if (!expected || !actual) return false;
-      try {
-        const expectedBuf = Buffer.from(expected, "utf8");
-        const actualBuf = Buffer.from(actual, "utf8");
-        if (expectedBuf.length !== actualBuf.length) return false;
-        return timingSafeEqual(expectedBuf, actualBuf);
-      } catch {
-        return false;
-      }
-    };
-
-    const appHmacOk = hmacMatch(receivedHmac, appHmac);
-    const webhookHmacOk = hmacMatch(receivedHmac, webhookHmac);
-
-    if (!appHmacOk && !webhookHmacOk) {
-      console.error("HMAC validation failed. Rejecting webhook.");
-      return new Response("Unauthorized", { status: 401 });
-    }
-
-    const payload = rawBody ? JSON.parse(rawBody) : {};
-    const topic = request.headers.get("x-shopify-topic") || "orders/updated";
-    const shop = request.headers.get("x-shopify-shop-domain") || "unknown";
+    // ── Parse webhook context ────────────────────────────────────────────
+    const { payload, topic, shop } = parseWebhookContext(request, rawBody, "orders/updated");
 
     const orderName = payload.name;
-    // Check payment status (payload.financial_status or payload.paymentStatus usually in some versions)
-    // The reference used: const paymentStatus = payload.financial_status || payload.paymentStatus;
     const paymentStatus = payload.financial_status || (payload as any).paymentStatus;
 
     console.log(`Webhook authenticated - Topic: ${topic}, Shop: ${shop}`);
     console.log(`Order: ${orderName}, Payment Status: ${paymentStatus}`);
-
-    // Only proceed if payment status is refunded
-    if (paymentStatus !== "refunded") {
-      console.log(`Payment status is not refunded (${paymentStatus}), skipping status update`);
-      return new Response(JSON.stringify({ 
-        message: "Payment status is not refunded, no action taken",
-        orderName,
-        paymentStatus 
-      }), { 
-        status: 200,
-        headers: { "Content-Type": "application/json" }
-      });
-    }
+    
+    // Log complete webhook payload for debugging
+    console.log(`[orders/updated Payload] COMPLETE PAYLOAD:`, JSON.stringify(payload, null, 2));
+    
+    // Log key status fields
+    console.log(`[orders/updated Payload] Key fields:`, JSON.stringify({
+      name: payload.name,
+      financial_status: payload.financial_status,
+      fulfillment_status: payload.fulfillment_status,
+      cancel_reason: payload.cancel_reason,
+      cancelled_at: payload.cancelled_at,
+      closed_at: payload.closed_at,
+      location_id: payload.location_id,
+      fulfillments: payload.fulfillments?.map((f: any) => ({
+        id: f.id,
+        status: f.status,
+        location_id: f.location_id,
+        tracking_number: f.tracking_number,
+        tracking_company: f.tracking_company,
+        line_items: f.line_items?.map((li: any) => ({ id: li.id, title: li.title, quantity: li.quantity })),
+      })),
+      line_items_fulfillment: payload.line_items?.map((li: any) => ({
+        id: li.id,
+        title: li.title,
+        fulfillment_service: li.fulfillment_service,
+        fulfillment_status: li.fulfillment_status,
+      })),
+    }, null, 2));
 
     if (!orderName) {
        console.error("Order name missing from payload");
        return new Response("Bad Request: Order name missing", { status: 400 });
     }
 
-    // Fetch the DynamoDB record
-    const getParams = {
-        TableName: TABLE_NAME,
-        Key: {
-            name: orderName
-        }
-    };
+    const fulfillmentStatus = payload.fulfillment_status; // null, "fulfilled", "partial"
+    const now = new Date().toISOString();
 
-    const getResult = await dynamodb.send(new GetCommand(getParams));
+    // Determine what changed and map to our internal status
+    let newStatus: string | null = null;
+    let s3Action: string | null = null; // "returned" folder move if needed
 
-    if (!getResult.Item) {
-        console.log(`No record found for order: ${orderName}`);
-        return new Response(JSON.stringify({ 
-            message: "Order record not found",
-            orderName 
-        }), { status: 200 }); // Return 200 to acknowledge webhook even if local DB doesn't have it
+    if (paymentStatus === "refunded") {
+      newStatus = "Returned";
+      s3Action = "returned";
+    } else if (fulfillmentStatus === "fulfilled") {
+      newStatus = "Fulfilled";
+    } else if (fulfillmentStatus === "partial") {
+      newStatus = "Partially Fulfilled";
     }
 
-    console.log("Existing record:", JSON.stringify(getResult.Item, null, 2));
+    // Extract fulfillment details (tracking, location, etc.)
+    const latestFulfillment = payload.fulfillments?.length > 0
+      ? payload.fulfillments[payload.fulfillments.length - 1]
+      : null;
 
-    // Update status to Returned
-    const updateParams = {
+    const fulfillmentData: Record<string, any> = {};
+    if (latestFulfillment) {
+      if (latestFulfillment.tracking_number) fulfillmentData.trackingNumber = latestFulfillment.tracking_number;
+      if (latestFulfillment.tracking_company) fulfillmentData.trackingCompany = latestFulfillment.tracking_company;
+      if (latestFulfillment.tracking_url) fulfillmentData.trackingUrl = latestFulfillment.tracking_url;
+      if (latestFulfillment.location_id) fulfillmentData.fulfillmentLocationId = latestFulfillment.location_id.toString();
+      if (latestFulfillment.status) fulfillmentData.fulfillmentDetailStatus = latestFulfillment.status;
+      if (latestFulfillment.created_at) fulfillmentData.fulfilledAt = latestFulfillment.created_at;
+      if (latestFulfillment.shipment_status) fulfillmentData.shipmentStatus = latestFulfillment.shipment_status;
+    }
+
+    // Resolve fulfillment location_id → state (via Shopify API)
+    const locationIdToResolve = fulfillmentData.fulfillmentLocationId || (payload.location_id ? payload.location_id.toString() : null);
+    if (locationIdToResolve) {
+      try {
+        const resolvedState = await resolveLocationState(shop, locationIdToResolve, "Unknown");
+        if (resolvedState !== "Unknown") {
+          fulfillmentData.fulfillmentState = resolvedState;
+        }
+      } catch (locError) {
+        console.log(`[Location] Error resolving location state:`, locError);
+      }
+    }
+
+    // Always update ShopifyOrders with latest status + fulfillment data
+    {
+      // Build dynamic UpdateExpression
+      const expressionParts: string[] = [
+        "#status = :status",
+        "updatedAt = :updatedAt",
+        "financial_status = :financialStatus",
+        "fulfillment_status = :fulfillmentStatus",
+      ];
+      const expressionValues: Record<string, any> = {
+        ":status": newStatus || (fulfillmentStatus ? `fulfillment:${fulfillmentStatus}` : "Created"),
+        ":updatedAt": now,
+        ":financialStatus": paymentStatus || "unknown",
+        ":fulfillmentStatus": fulfillmentStatus || "unfulfilled",
+      };
+      const expressionNames: Record<string, string> = {
+        "#status": "status",
+      };
+
+      // Add fulfillment data fields if present
+      for (const [key, value] of Object.entries(fulfillmentData)) {
+        expressionParts.push(`${key} = :${key}`);
+        expressionValues[`:${key}`] = value;
+      }
+
+      // Add location_id from order level if present
+      if (payload.location_id) {
+        expressionParts.push("locationId = :locationId");
+        expressionValues[":locationId"] = payload.location_id.toString();
+      }
+
+      const updateResult = await dynamodb.send(new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: {
-            name: orderName
-        },
-        UpdateExpression: "SET #status = :status, updatedAt = :updatedAt",
-        ExpressionAttributeNames: {
-            "#status": "status"
-        },
+        Key: { name: orderName },
+        UpdateExpression: `SET ${expressionParts.join(", ")}`,
+        ExpressionAttributeNames: expressionNames,
+        ExpressionAttributeValues: expressionValues,
+        ReturnValues: "ALL_NEW" as const,
+      }));
+
+      console.log(`[ShopifyOrders] Updated order ${orderName} → status: ${newStatus || "Updated"}`, JSON.stringify({
+        ...fulfillmentData,
+        financial_status: paymentStatus,
+        fulfillment_status: fulfillmentStatus,
+      }));
+    }
+
+    // Update ShopifyOrderItems with fulfillment info
+    try {
+      const gstQuery = await dynamodb.send(new QueryCommand({
+        TableName: TABLE_NAMES.SHOPIFY_ORDER_ITEMS,
+        KeyConditionExpression: "shop = :shop AND begins_with(orderNumber_lineItemIdx, :orderNum)",
         ExpressionAttributeValues: {
-            ":status": "Returned",
-            ":updatedAt": new Date().toISOString()
+          ":shop": shop,
+          ":orderNum": `${orderName}#`,
         },
-        ReturnValues: "ALL_NEW" as const
-    };
+      }));
 
-    const updateResult = await dynamodb.send(new UpdateCommand(updateParams));
-    console.log("Updated record:", JSON.stringify(updateResult.Attributes, null, 2));
+      if (gstQuery.Items && gstQuery.Items.length > 0) {
+        const itemUpdateParts: string[] = [
+          "updatedAt = :updatedAt",
+          "updatedBy = :updatedBy",
+        ];
+        const itemUpdateValues: Record<string, any> = {
+          ":updatedAt": now,
+          ":updatedBy": "webhook-orders-updated",
+        };
 
-    // Move invoice to shop's returned folder in S3
-    const movedFiles = await moveInvoiceToFolder(orderName, shop, 'returned');
-    
-    return new Response(JSON.stringify({
-        success: true,
-        message: "Order status updated to Returned successfully",
-        orderName,
-        paymentStatus,
-        movedInvoices: movedFiles
-    }), {
-        status: 200,
-        headers: {
-            "Content-Type": "application/json",
-        },
+        if (newStatus) {
+          itemUpdateParts.push("orderStatus = :orderStatus");
+          itemUpdateValues[":orderStatus"] = newStatus;
+        }
+        if (fulfillmentData.fulfillmentLocationId) {
+          itemUpdateParts.push("fulfillmentLocationId = :locationId");
+          itemUpdateValues[":locationId"] = fulfillmentData.fulfillmentLocationId;
+        }
+        if (fulfillmentData.trackingNumber) {
+          itemUpdateParts.push("trackingNumber = :trackingNumber");
+          itemUpdateValues[":trackingNumber"] = fulfillmentData.trackingNumber;
+        }
+        if (fulfillmentData.fulfillmentState) {
+          itemUpdateParts.push("fulfillmentState = :fulfillmentState");
+          itemUpdateValues[":fulfillmentState"] = fulfillmentData.fulfillmentState;
+        }
+
+        for (const item of gstQuery.Items) {
+          await dynamodb.send(new UpdateCommand({
+            TableName: TABLE_NAMES.SHOPIFY_ORDER_ITEMS,
+            Key: {
+              shop: item.shop,
+              orderNumber_lineItemIdx: item.orderNumber_lineItemIdx,
+            },
+            UpdateExpression: `SET ${itemUpdateParts.join(", ")}`,
+            ExpressionAttributeValues: itemUpdateValues,
+          }));
+        }
+        console.log(`[ShopifyOrderItems] Updated ${gstQuery.Items.length} records for ${orderName}`);
+      }
+    } catch (itemUpdateError) {
+      console.error("[ShopifyOrderItems] Error updating:", itemUpdateError);
+    }
+
+    // ---- Generate invoice on fulfillment if multi-warehouse GST is enabled ----
+    let invoiceGeneratedOnFulfillment = false;
+    let invoiceResult: { invoiceId?: string; s3Url?: string; fileName?: string } = {};
+
+    if ((fulfillmentStatus === "fulfilled") && latestFulfillment) {
+      const shopConfig = await fetchShopConfig(shop);
+      console.log(`[Multi-Warehouse] multiWarehouseGST=${shopConfig.multiWarehouseGST}, fulfillmentStatus=${fulfillmentStatus}`);
+
+      if (shopConfig.multiWarehouseGST) {
+        // Check if invoice already exists (idempotency)
+        const orderId = payload.id?.toString() || orderName;
+        const existingInvoiceId = await checkInvoiceExists(orderId);
+
+        if (existingInvoiceId) {
+          console.log(`[Multi-Warehouse] Invoice already exists for order ${orderId}, skipping`);
+        } else {
+          console.log(`[Multi-Warehouse] Generating invoice on fulfillment for order ${orderName}`);
+
+          // Resolve fulfillment location → state
+          const fulfillmentLocId = latestFulfillment.location_id?.toString();
+          let fulfillmentLocationState = shopConfig.companyState;
+          if (fulfillmentLocId) {
+            fulfillmentLocationState = await resolveLocationState(shop, fulfillmentLocId, shopConfig.companyState);
+          }
+
+          try {
+            const result = await generateInvoicePipeline({
+              shop,
+              payload,
+              orderName,
+              fulfillmentState: fulfillmentLocationState,
+              companyGSTIN: shopConfig.companyGSTIN,
+              source: "webhook-orders-updated-fulfillment",
+              extraInvoiceFields: {
+                generatedAt: "fulfillment",
+                fulfillmentLocationId: fulfillmentLocId || "",
+                fulfillmentState: fulfillmentLocationState,
+              },
+            });
+
+            invoiceResult = result;
+            invoiceGeneratedOnFulfillment = true;
+          } catch (pipelineError) {
+            console.error("[Multi-Warehouse] Error in invoice pipeline:", pipelineError);
+          }
+        }
+      }
+    }
+
+    // Move invoice to returned folder in S3 if refunded
+    let movedFiles: string[] = [];
+    if (s3Action) {
+      movedFiles = await moveInvoiceToFolder(orderName, shop, s3Action);
+    }
+
+    return jsonResponse({
+      success: true,
+      message: `Order ${orderName} updated → ${newStatus || "Updated"}`,
+      orderName,
+      paymentStatus,
+      fulfillmentStatus,
+      fulfillmentData,
+      movedInvoices: movedFiles,
+      invoiceGeneratedOnFulfillment,
+      invoiceId: invoiceResult.invoiceId || null,
     });
 
   } catch (error) {
     console.error("Failed to process orders/updated webhook:", error);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        message: "Failed to process order webhook",
-        error: error instanceof Error ? error.message : "Unknown error",
-      }),
-      {
-        status: 500,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    return errorResponse("Failed to process order webhook", error);
   }
 };
