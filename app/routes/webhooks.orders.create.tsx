@@ -299,7 +299,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     if (!invoiceExists) {
       try {
-        const now = new Date().toISOString();
+        const now = Date.now();
         await dynamodb.send(
           new PutCommand({
             TableName: TABLE_NAMES.INVOICES,
