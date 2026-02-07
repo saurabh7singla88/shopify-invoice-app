@@ -218,6 +218,7 @@ export async function writeOrderItems(
       
       // 11. Audit Fields
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       createdBy: "system",
     };
     

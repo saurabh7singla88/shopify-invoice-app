@@ -161,6 +161,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         sourceIP: payload.browser_ip || payload.client_details?.browser_ip || null,
         shop, // Include shop domain
         topic, // Include webhook topic
+        updatedAt: timestamp,
         ttl: Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60, // 90 days expiration
       };
 
@@ -298,7 +299,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     if (!invoiceExists) {
       try {
-        const now = Date.now();
+        const now = new Date().toISOString();
         await dynamodb.send(
           new PutCommand({
             TableName: TABLE_NAMES.INVOICES,
@@ -378,7 +379,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             TableName: TABLE_NAME,
             Key: { name: payload.name },
             UpdateExpression:
-              "SET s3Key = :s3Key, invoiceGenerated = :generated, invoiceGeneratedAt = :ts",
+              "SET s3Key = :s3Key, invoiceGenerated = :generated, invoiceGeneratedAt = :ts, updatedAt = :ts",
             ExpressionAttributeValues: {
               ":s3Key": lambdaResult.fileName,
               ":generated": true,
