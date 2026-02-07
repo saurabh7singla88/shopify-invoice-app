@@ -268,7 +268,7 @@
         "Code": {
           "ZipFile": "exports.lambdaHandler = async () => ({ statusCode: 200, body: 'Placeholder - Deploy your code' });"
         },
-        "MemorySize": 1024,
+        "MemorySize": 512,
         "Timeout": 30,
         "Role": { "Fn::GetAtt": ["LambdaExecutionRole", "Arn"] },
         "Environment": {
@@ -364,7 +364,7 @@
           "ZipFile": "export const handler = async () => ({ statusCode: 200, body: 'Placeholder - Deploy lambda-generate-pdf-invoice code' });"
         },
         "MemorySize": 512,
-        "Timeout": 60,
+        "Timeout": 30,
         "Role": { "Fn::GetAtt": ["PDFInvoiceLambdaRole", "Arn"] },
         "Environment": {
           "Variables": {
