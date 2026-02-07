@@ -1,11 +1,15 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import dynamodb from "../db.server";
-import { PutCommand, QueryCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, QueryCommand, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { TABLE_NAMES } from "../constants/tables";
-import { writeOrderItems, type OrderLineItem } from "../services/gstReporting.server";
+import { writeOrderItems } from "../services/gstReporting.server";
+import {
+  transformOrderToInvoice,
+  type ShopifyOrderPayload,
+} from "../services/invoiceTransformer.server";
 
 const TABLE_NAME = TABLE_NAMES.ORDERS;
 const SHOPS_TABLE = TABLE_NAMES.SHOPS;
@@ -183,70 +187,208 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       console.log("Could not fetch shop config:", shopError);
     }
 
-    // Only invoke Lambda if invoice doesn't exist yet
-    if (!invoiceExists) {
-      // Invoke invoice generation Lambda (async - non-blocking)
-      try {
-        const invokeParams = {
-          FunctionName: process.env.INVOICE_LAMBDA_NAME || "shopify-generate-invoice",
-          InvocationType: "Event" as const, // Asynchronous - don't wait for response
-          Payload: Buffer.from(JSON.stringify({
-            ...payload,
-            shop,
-            shop_domain: shop,
-          }),
-          "utf8"),
-        };
+    const companyState = shopConfig?.state || "Unknown";
+    const companyGSTIN = shopConfig?.gstin;
 
-        await lambdaClient.send(new InvokeCommand(invokeParams));
-        console.log("Invoice generation Lambda invoked successfully");
-      } catch (invokeError) {
-        console.error("Error invoking invoice generation:", invokeError);
-        // Continue even if invoice generation fails
-      }
+    // ---- Transform order → InvoiceData (single source of truth for tax) ----
+    let invoiceData;
+    try {
+      invoiceData = transformOrderToInvoice(
+        payload as ShopifyOrderPayload,
+        companyState
+      );
+      console.log(
+        `[Transform] Computed ${invoiceData.lineItems.length} expanded line items, ` +
+        `${invoiceData._gstMeta.items.length} GST meta items, ` +
+        `isIntrastate=${invoiceData._gstMeta.isIntrastate}`
+      );
+    } catch (transformError) {
+      console.error("Error transforming order:", transformError);
+      // Cannot proceed without transform — fail gracefully
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "Failed to transform order for invoice",
+          error: transformError instanceof Error ? transformError.message : String(transformError),
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
     }
-    // Write GST reporting data immediately (best effort)
-    console.log(`[GST] Checking line items - exists: ${!!payload.line_items}, count: ${payload.line_items?.length || 0}`);
-    if (payload.line_items && payload.line_items.length > 0) {
+
+    // ---- Write GST reporting data (correct values from the start) ----
+    if (invoiceData._gstMeta.items.length > 0) {
       try {
-        console.log(`[GST] Processing ${payload.line_items.length} line items for order ${payload.name}`);
-        const invoiceDate = new Date().toISOString();
-        
-        // Determine customer state and place of supply
-        const customerState = 
-          payload.shipping_address?.province || 
-          payload.billing_address?.province || 
-          "Unknown";
-        
-        const placeOfSupply = payload.shipping_address?.province || customerState;
-        
-        // Get company state from shop config
-        const companyState = shopConfig?.state || "Unknown";
-        const companyGSTIN = shopConfig?.gstin;
+        const invoiceDate = new Date(payload.created_at || Date.now()).toISOString();
 
         await writeOrderItems(
           shop,
           {
-            invoiceId: "", // Will be updated by invoice Lambda
+            invoiceId: "", // Will be updated after Lambda returns
             invoiceNumber: payload.name,
             invoiceDate,
             orderId: payload.id?.toString() || payload.name,
             orderNumber: payload.name,
-            customerName,
-            customerState,
-            placeOfSupply,
+            customerName: invoiceData.customer.name,
+            customerState: invoiceData._gstMeta.customerState,
+            placeOfSupply: invoiceData._gstMeta.placeOfSupply,
           },
-          payload.line_items as OrderLineItem[],
+          invoiceData._gstMeta.items,
           {
             state: companyState,
             gstin: companyGSTIN,
           }
         );
-        
+
         console.log(`GST reporting data written for order ${payload.name}`);
       } catch (gstError) {
         console.error("Error writing GST reporting data:", gstError);
         // Don't fail the webhook if GST reporting fails
+      }
+    }
+
+    // ---- Invoke PDF Lambda (sync) — only if invoice doesn't exist yet ----
+    let lambdaResult: { invoiceId?: string; s3Url?: string; fileName?: string; emailSentTo?: string } = {};
+
+    if (!invoiceExists) {
+      try {
+        // Strip _gstMeta before sending to Lambda (it only needs display data)
+        const { _gstMeta, ...invoiceDataForLambda } = invoiceData;
+
+        const invokeParams = {
+          FunctionName: process.env.INVOICE_LAMBDA_NAME || "shopify-generate-pdf-invoice",
+          InvocationType: "RequestResponse" as const, // Synchronous — wait for result
+          Payload: Buffer.from(
+            JSON.stringify({
+              invoiceData: invoiceDataForLambda,
+              shop,
+              orderId: payload.id?.toString(),
+              orderName: payload.name,
+            }),
+            "utf8"
+          ),
+        };
+
+        const lambdaResponse = await lambdaClient.send(new InvokeCommand(invokeParams));
+
+        if (lambdaResponse.Payload) {
+          const responseStr = Buffer.from(lambdaResponse.Payload).toString();
+          const parsed = JSON.parse(responseStr);
+          // Handle both direct response and API Gateway-style response
+          lambdaResult = parsed.body ? JSON.parse(parsed.body) : parsed;
+          console.log(
+            `Lambda returned: invoiceId=${lambdaResult.invoiceId}, s3Url=${lambdaResult.s3Url}`
+          );
+        }
+
+        if (lambdaResponse.FunctionError) {
+          console.error("Lambda execution error:", lambdaResponse.FunctionError);
+          // Try to get error details from payload
+          if (lambdaResponse.Payload) {
+            console.error("Lambda error payload:", Buffer.from(lambdaResponse.Payload).toString());
+          }
+        }
+      } catch (invokeError) {
+        console.error("Error invoking PDF generation Lambda:", invokeError);
+        // Continue even if Lambda fails — GST data is already written
+      }
+    }
+
+    // ---- Save Invoices table record (moved from Lambda) ----
+    const invoiceId = lambdaResult.invoiceId || randomUUID();
+
+    if (!invoiceExists) {
+      try {
+        const now = Date.now();
+        await dynamodb.send(
+          new PutCommand({
+            TableName: TABLE_NAMES.INVOICES,
+            Item: {
+              invoiceId,
+              shop,
+              orderId: payload.id?.toString() || payload.name,
+              orderName: payload.name,
+              customerName: invoiceData.customer.name || "",
+              customerEmail: invoiceData.customer.email || "",
+              s3Key: lambdaResult.fileName || "",
+              s3Url: lambdaResult.s3Url || "",
+              emailSentTo: lambdaResult.emailSentTo || "",
+              emailSentAt: lambdaResult.emailSentTo ? now : null,
+              total: invoiceData.totals.total,
+              status: lambdaResult.emailSentTo ? "sent" : "generated",
+              createdAt: now,
+              updatedAt: now,
+            },
+            ConditionExpression: "attribute_not_exists(invoiceId)",
+          })
+        );
+        console.log(`Invoice record saved: ${invoiceId}`);
+      } catch (dbError) {
+        console.error("Error saving invoice record:", dbError);
+      }
+    }
+
+    // ---- Update ShopifyOrderItems with invoiceId ----
+    if (invoiceId) {
+      try {
+        const gstQuery = await dynamodb.send(
+          new QueryCommand({
+            TableName: TABLE_NAMES.SHOPIFY_ORDER_ITEMS,
+            KeyConditionExpression:
+              "shop = :shop AND begins_with(orderNumber_lineItemIdx, :orderNumber)",
+            ExpressionAttributeValues: {
+              ":shop": shop,
+              ":orderNumber": `${payload.name}#`,
+            },
+          })
+        );
+
+        if (gstQuery.Items && gstQuery.Items.length > 0) {
+          for (const item of gstQuery.Items) {
+            await dynamodb.send(
+              new UpdateCommand({
+                TableName: TABLE_NAMES.SHOPIFY_ORDER_ITEMS,
+                Key: {
+                  shop: item.shop,
+                  orderNumber_lineItemIdx: item.orderNumber_lineItemIdx,
+                },
+                UpdateExpression:
+                  "SET invoiceId = :invoiceId, updatedAt = :updatedAt, updatedBy = :updatedBy",
+                ExpressionAttributeValues: {
+                  ":invoiceId": invoiceId,
+                  ":updatedAt": new Date().toISOString(),
+                  ":updatedBy": "webhook-orders-create",
+                },
+              })
+            );
+          }
+          console.log(
+            `Updated ${gstQuery.Items.length} GST records with invoiceId ${invoiceId}`
+          );
+        }
+      } catch (updateError) {
+        console.error("Error updating GST records with invoiceId:", updateError);
+      }
+    }
+
+    // ---- Update ShopifyOrders table with S3 key ----
+    if (lambdaResult.fileName) {
+      try {
+        await dynamodb.send(
+          new UpdateCommand({
+            TableName: TABLE_NAME,
+            Key: { name: payload.name },
+            UpdateExpression:
+              "SET s3Key = :s3Key, invoiceGenerated = :generated, invoiceGeneratedAt = :ts",
+            ExpressionAttributeValues: {
+              ":s3Key": lambdaResult.fileName,
+              ":generated": true,
+              ":ts": new Date().toISOString(),
+            },
+          })
+        );
+        console.log(`ShopifyOrders updated with S3 key: ${lambdaResult.fileName}`);
+      } catch (dbError) {
+        console.error("Error updating ShopifyOrders:", dbError);
       }
     }
 
@@ -255,6 +397,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         success: true,
         message: "Order webhook processed successfully",
         eventId,
+        invoiceId,
         timestamp,
       }),
       {

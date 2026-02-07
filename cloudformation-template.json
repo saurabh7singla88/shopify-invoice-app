@@ -64,8 +64,13 @@
     },
     "InvoiceLambdaName": {
       "Type": "String",
-      "Default": "shopify-generate-invoice",
-      "Description": "Name of the Lambda function for invoice generation"
+      "Default": "shopify-generate-pdf-invoice",
+      "Description": "Name of the Lambda function for invoice PDF generation (invoked synchronously by the app)"
+    },
+    "PDFInvoiceLambdaName": {
+      "Type": "String",
+      "Default": "shopify-generate-pdf-invoice",
+      "Description": "Name of the new pure-PDF Lambda function"
     },
     "ShopifyOrderItemsTableName": {
       "Type": "String",
@@ -244,7 +249,8 @@
                   "Effect": "Allow",
                   "Action": ["lambda:InvokeFunction"],
                   "Resource": [
-                    {"Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:shopify-generate-invoice"} 
+                    {"Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:shopify-generate-invoice"},
+                    {"Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${PDFInvoiceLambdaName}"}
                   ]
                 }
               ]
@@ -275,6 +281,98 @@
             "APP_ASSETS_BUCKET_NAME": { "Ref": "AssetsBucket" },
             "INVOICE_LAMBDA_NAME": { "Ref": "InvoiceLambdaName" },
             "SHOPIFY_ORDER_ITEMS_TABLE": { "Ref": "ShopifyOrderItemsTableName" }
+          }
+        }
+      }
+    },
+    "PDFInvoiceLambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "${PDFInvoiceLambdaName}-role"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "lambda.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Policies": [
+          {
+            "PolicyName": "PDFLambdaDynamoDBReadOnly",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": ["dynamodb:GetItem", "dynamodb:Query"],
+                  "Resource": [
+                    { "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ShopsTableName}" },
+                    { "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TemplatesTableName}" },
+                    { "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TemplateConfigTableName}" },
+                    { "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TemplateConfigTableName}/index/*" }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "PDFLambdaS3Access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:PutObject"],
+                  "Resource": [
+                    { "Fn::Sub": "${AssetsBucket.Arn}/*" }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "PDFLambdaSNSAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": ["sns:Publish"],
+                  "Resource": ["*"]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "PDFInvoiceLambdaFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": { "Ref": "PDFInvoiceLambdaName" },
+        "Runtime": "nodejs20.x",
+        "Handler": "index.handler",
+        "Code": {
+          "ZipFile": "export const handler = async () => ({ statusCode: 200, body: 'Placeholder - Deploy lambda-generate-pdf-invoice code' });"
+        },
+        "MemorySize": 512,
+        "Timeout": 60,
+        "Role": { "Fn::GetAtt": ["PDFInvoiceLambdaRole", "Arn"] },
+        "Environment": {
+          "Variables": {
+            "S3_BUCKET_NAME": { "Ref": "AssetsBucket" },
+            "SHOPS_TABLE_NAME": { "Ref": "ShopsTableName" },
+            "TEMPLATES_TABLE_NAME": { "Ref": "TemplatesTableName" },
+            "TEMPLATE_CONFIG_TABLE_NAME": { "Ref": "TemplateConfigTableName" },
+            "SNS_TOPIC_ARN": ""
           }
         }
       }
@@ -691,6 +789,14 @@
     "ShopifyOrderItemsTableName": {
       "Description": "DynamoDB ShopifyOrderItems Table Name",
       "Value": { "Ref": "ShopifyOrderItemsTableName" }
+    },
+    "PDFInvoiceLambdaFunctionName": {
+      "Description": "PDF Invoice Lambda Function Name",
+      "Value": { "Ref": "PDFInvoiceLambdaFunction" }
+    },
+    "PDFInvoiceLambdaFunctionArn": {
+      "Description": "PDF Invoice Lambda Function ARN",
+      "Value": { "Fn::GetAtt": ["PDFInvoiceLambdaFunction", "Arn"] }
     }
   }
 }

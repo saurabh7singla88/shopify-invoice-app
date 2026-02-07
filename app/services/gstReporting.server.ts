@@ -14,6 +14,7 @@ import {
 import { TABLE_NAMES } from "../constants/tables";
 import { getStateCode } from "../constants/gstStateCodes";
 import { DEFAULT_UQC, type UQCCode } from "../constants/uqcCodes";
+import type { GSTLineItemMeta } from "./invoiceTransformer.server";
 
 const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);
@@ -115,10 +116,13 @@ export interface ShopifyOrderItem {
 }
 
 /**
- * Write order items (line-item level GST data) for an invoice
+ * Write order items (line-item level GST data) for an invoice.
+ * Accepts pre-computed GSTLineItemMeta[] from the invoice transformer
+ * — no tax calculation happens here.
+ *
  * @param shop - Shop domain
- * @param invoiceData - Invoice and order data
- * @param lineItems - Array of line items from the order
+ * @param invoiceData - Invoice and order metadata
+ * @param gstLineItems - Pre-computed GST line items from invoiceTransformer
  * @param companyInfo - Company GST information
  */
 export async function writeOrderItems(
@@ -133,13 +137,13 @@ export async function writeOrderItems(
     customerState: string;
     placeOfSupply: string;
   },
-  lineItems: OrderLineItem[],
+  gstLineItems: GSTLineItemMeta[],
   companyInfo: {
     state: string;
     gstin?: string;
   }
 ): Promise<void> {
-  console.log(`[writeOrderItems] Writing ${lineItems.length} line items for order ${invoiceData.orderNumber}`);
+  console.log(`[writeOrderItems] Writing ${gstLineItems.length} line items for order ${invoiceData.orderNumber}`);
   
   const yearMonth = invoiceData.invoiceDate.substring(0, 7); // "2026-02"
   const companyStateCode = getStateCode(companyInfo.state);
@@ -149,31 +153,8 @@ export async function writeOrderItems(
   const transactionType: "intrastate" | "interstate" =
     companyStateCode === placeOfSupplyCode ? "intrastate" : "interstate";
   
-  const records: ShopifyOrderItem[] = lineItems.map((item, index) => {
+  const records: ShopifyOrderItem[] = gstLineItems.map((item, index) => {
     const lineItemIdx = index + 1;
-    const unitPrice = parseFloat(item.price);
-    const discount = parseFloat(item.total_discount);
-    const taxableValue = unitPrice * item.quantity - discount;
-    
-    // Calculate tax breakdown
-    let totalTaxAmount = 0;
-    let taxRate = 0;
-    
-    item.tax_lines.forEach((tax) => {
-      totalTaxAmount += parseFloat(tax.price);
-      taxRate = Math.round(tax.rate * 100); // Convert 0.18 to 18
-    });
-    
-    let cgst = 0;
-    let sgst = 0;
-    let igst = 0;
-    
-    if (transactionType === "intrastate") {
-      cgst = totalTaxAmount / 2;
-      sgst = totalTaxAmount / 2;
-    } else {
-      igst = totalTaxAmount;
-    }
     
     const record: ShopifyOrderItem = {
       // 1. Primary Keys
@@ -183,7 +164,7 @@ export async function writeOrderItems(
       // 2. Order & Invoice Info
       orderId: invoiceData.orderId,
       orderNumber: invoiceData.orderNumber,
-      invoiceId: undefined, // Will be updated by invoice Lambda
+      invoiceId: invoiceData.invoiceId || undefined,
       invoiceNumber: invoiceData.invoiceNumber,
       invoiceDate: invoiceData.invoiceDate,
       yearMonth,
@@ -191,30 +172,30 @@ export async function writeOrderItems(
       
       // 3. Line Item Details
       lineItemIdx,
-      productId: item.product_id?.toString(),
-      variantId: item.variant_id?.toString(),
-      sku: item.sku,
-      productTitle: item.title,
+      productId: item.productId || undefined,
+      variantId: item.variantId || undefined,
+      sku: item.sku || undefined,
+      productTitle: item.productTitle,
       
       // 4. Product Classification (HSN/SAC)
-      hsn: undefined, // Will be populated when product metafield support is added
+      hsn: item.hsn || undefined,
       hsnDescription: undefined,
       uqc: DEFAULT_UQC,
       sacCode: undefined,
       
-      // 5. Amount Details
+      // 5. Amount Details — all pre-computed by transformer
       quantity: item.quantity,
-      unitPrice,
-      discount,
-      taxableValue,
+      unitPrice: item.unitPrice,
+      discount: item.discount,
+      taxableValue: item.taxableValue,
       
-      // 6. Tax Details
-      taxRate,
-      cgst,
-      sgst,
-      igst,
-      cess: 0, // TODO: Add cess calculation if needed
-      totalTax: totalTaxAmount,
+      // 6. Tax Details — all pre-computed by transformer
+      taxRate: item.taxRate,
+      cgst: item.cgst,
+      sgst: item.sgst,
+      igst: item.igst,
+      cess: 0,
+      totalTax: item.totalTax,
       
       // 7. Customer Info
       customerName: invoiceData.customerName,
@@ -237,7 +218,7 @@ export async function writeOrderItems(
       
       // 11. Audit Fields
       createdAt: new Date().toISOString(),
-      createdBy: "system", // Webhook system
+      createdBy: "system",
     };
     
     // Add GSI composite keys
