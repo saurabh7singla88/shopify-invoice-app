@@ -11,4 +11,5 @@ export const TABLE_NAMES = {
   INVOICES: "Invoices",
   AUDIT_LOGS: "AuditLogs",
   SHOPIFY_ORDER_ITEMS: "ShopifyOrderItems",
+  PRODUCTS: "Products",
 } as const;

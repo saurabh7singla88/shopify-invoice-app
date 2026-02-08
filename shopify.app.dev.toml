@@ -32,8 +32,12 @@ api_version = "2026-04"
   topics = [ "orders/updated" ]
   uri = "/webhooks/orders/updated"
 
+  [[webhooks.subscriptions]]
+  topics = [ "products/update" ]
+  uri = "/webhooks/products/update"
+
 [access_scopes]
-scopes = "read_orders,read_customers"
+scopes = "read_orders,read_customers,read_products"
 use_legacy_install_flow = false
 
 [auth]

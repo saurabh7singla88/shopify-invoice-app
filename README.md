@@ -5,6 +5,7 @@ A Shopify App that automatically generates GST-compliant invoices for orders. Bu
 ## Features
 
 - ✅ Automatic GST-compliant invoice generation (CGST/SGST/IGST)
+- ✅ **HSN/SAC code caching** from product metafields (zero API calls during invoicing)
 - ✅ Customizable templates (colors, fonts, logo, company details)
 - ✅ Indian states support with dropdown
 - ✅ Order tracking (create, cancel, return)
@@ -61,11 +62,27 @@ shopify app deploy
 
 ```toml
 [access_scopes]
-scopes = "read_orders,read_customers"
+scopes = "read_orders,read_customers,read_products"
 use_legacy_install_flow = false  # REQUIRED for embedded apps
 
 automatically_update_urls_on_dev = false  # Prevents URL overwrites
 ```
+
+### HSN/SAC Code Setup
+
+**Add HSN codes to products:**
+1. Go to Shopify Admin → Products
+2. Edit product → Metafields
+3. Add custom metafield: `hsn` or `hsn_code` (namespace: `custom`)
+4. Product updates automatically sync to cache via webhook
+
+**Cache behavior:**
+- Products table stores HSN codes with 90-day TTL
+- `products/update` webhook keeps cache in sync
+- Orders fetch HSN from cache (no API calls needed)
+- Falls back to Shopify API if cache miss
+
+**Migration:** Run `.\dynamodb-migrations\create-products-table.ps1` to create the Products table.
 
 ## Deployment
 
@@ -145,11 +162,12 @@ lambda-generate-invoice/
 
 **Documentation:**
 - [AI_CONTEXT.md](AI_CONTEXT.md) - Technical architecture for AI models
-- [AWS_DEPLOYMENT.md](other-md-files/AWS_DEPLOYMENT.md) - Detailed deployment guide
-- [DEPLOYMENT_CHECKLIST.md](other-md-files/DEPLOYMENT_CHECKLIST.md) - Step-by-step checklist
-- [LOCAL_SETUP.md](other-md-files/LOCAL_SETUP.md) - Local dev setup
-- [TEMPLATE_CONFIG_SAVE.md](other-md-files/TEMPLATE_CONFIG_SAVE.md) - Template config feature
-- [SHOP_TEMPLATE_SETUP.md](other-md-files/SHOP_TEMPLATE_SETUP.md) - Shop registration system
+- [AWS_DEPLOYMENT.md](docs/AWS_DEPLOYMENT.md) - Detailed deployment guide
+- [DEPLOYMENT_CHECKLIST.md](docs/DEPLOYMENT_CHECKLIST.md) - Step-by-step checklist
+- [HSN_CACHE_IMPLEMENTATION.md](docs/HSN_CACHE_IMPLEMENTATION.md) - HSN code caching system
+- [LOCAL_SETUP.md](docs/LOCAL_SETUP.md) - Local dev setup
+- [TEMPLATE_CONFIG_SAVE.md](docs/TEMPLATE_CONFIG_SAVE.md) - Template config feature
+- [SHOP_TEMPLATE_SETUP.md](docs/SHOP_TEMPLATE_SETUP.md) - Shop registration system
 
 ## Request Protected Data Access
 

@@ -17,6 +17,7 @@ import {
   type ShopifyOrderPayload,
 } from "./invoiceTransformer.server";
 import { getTemplateConfiguration, getLocationState, getShopAccessToken } from "./dynamodb.server";
+import { enrichLineItemsWithHSN } from "./productMetafields.server";
 
 // ─── Shared clients ──────────────────────────────────────────────────────────
 
@@ -255,9 +256,29 @@ export async function generateInvoicePipeline(opts: {
   const { shop, payload, orderName, fulfillmentState, companyGSTIN, source, extraInvoiceFields } = opts;
   const orderId = payload.id?.toString() || orderName;
 
+  // 0. Enrich payload with HSN codes from cache
+  let enrichedPayload = payload;
+  if (payload.line_items && payload.line_items.length > 0) {
+    try {
+      const enrichedLineItems = await enrichLineItemsWithHSN(
+        shop,
+        null, // No admin client available in webhook context - cache only
+        payload.line_items
+      );
+      enrichedPayload = {
+        ...payload,
+        line_items: enrichedLineItems,
+      };
+      console.log(`[InvoicePipeline] Enriched ${enrichedLineItems.length} line items with cached HSN codes`);
+    } catch (error) {
+      console.error('[InvoicePipeline] Error enriching HSN codes:', error);
+      // Continue with original payload
+    }
+  }
+
   // 1. Transform order → InvoiceData
   const invoiceData = transformOrderToInvoice(
-    payload as ShopifyOrderPayload,
+    enrichedPayload as ShopifyOrderPayload,
     fulfillmentState
   );
   console.log(

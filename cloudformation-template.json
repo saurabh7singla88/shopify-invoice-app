@@ -76,6 +76,11 @@
       "Type": "String",
       "Default": "ShopifyOrderItems",
       "Description": "Name of the DynamoDB table for order items (GST reporting data)"
+    },
+    "ProductsTableName": {
+      "Type": "String",
+      "Default": "Products",
+      "Description": "Name of the DynamoDB table for product HSN code cache"
     }
   },
   "Resources": {
@@ -208,6 +213,12 @@
                     },
                     {
                       "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ShopifyOrderItemsTableName}/index/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProductsTableName}"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProductsTableName}/index/*"
                     }
                   ]
                 }
@@ -280,7 +291,8 @@
             "S3_BUCKET_NAME": { "Ref": "AssetsBucket" },
             "APP_ASSETS_BUCKET_NAME": { "Ref": "AssetsBucket" },
             "INVOICE_LAMBDA_NAME": { "Ref": "InvoiceLambdaName" },
-            "SHOPIFY_ORDER_ITEMS_TABLE": { "Ref": "ShopifyOrderItemsTableName" }
+            "SHOPIFY_ORDER_ITEMS_TABLE": { "Ref": "ShopifyOrderItemsTableName" },
+            "PRODUCTS_TABLE": { "Ref": "ProductsTableName" }
           }
         }
       }
@@ -737,6 +749,47 @@
           }
         ]
       }
+    },
+    "ProductsTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Ref": "ProductsTableName" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "shop",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "productId",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "shop",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "productId",
+            "KeyType": "RANGE"
+          }
+        ],
+        "TimeToLiveSpecification": {
+          "AttributeName": "ttl",
+          "Enabled": true
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": "Shopify-Invoice-App"
+          },
+          {
+            "Key": "Purpose",
+            "Value": "Product-HSN-Cache"
+          }
+        ]
+      }
     }
   },
   "Outputs": {
@@ -789,6 +842,10 @@
     "ShopifyOrderItemsTableName": {
       "Description": "DynamoDB ShopifyOrderItems Table Name",
       "Value": { "Ref": "ShopifyOrderItemsTableName" }
+    },
+    "ProductsTableName": {
+      "Description": "DynamoDB Products Table Name",
+      "Value": { "Ref": "ProductsTableName" }
     },
     "PDFInvoiceLambdaFunctionName": {
       "Description": "PDF Invoice Lambda Function Name",
