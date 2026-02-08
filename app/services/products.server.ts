@@ -105,12 +105,15 @@ export async function getHSNCodeWithFallback(
 
     // Cache for next time
     if (hsnCode) {
+      console.log(`[HSN Fetch] ✓ Found HSN ${hsnCode} for product ${productId}, caching...`);
       await saveProduct(shop, {
         productId: productId.toString(),
         hsnCode,
         title: '',
         updatedAt: new Date().toISOString(),
       });
+    } else {
+      console.log(`[HSN Fetch] ✗ No HSN metafield found for product ${productId}`);
     }
 
     return hsnCode || null;
@@ -149,10 +152,14 @@ export async function getHSNCodesForLineItems(
   if (missingIds.length > 0 && admin) {
     try {
       const fetchedHSN = await fetchProductHSNCodes(admin, missingIds);
+      console.log(`[HSN Fetch] Fetched ${fetchedHSN.size} HSN codes from Shopify API`);
 
       // Merge with cached results and save to cache
       for (const [productId, hsnCode] of fetchedHSN) {
+        console.log(`[HSN Fetch] Product ${productId} → HSN ${hsnCode}`);
         cachedHSN.set(productId, hsnCode);
+
+        // Save to cache for next time
         await saveProduct(shop, {
           productId,
           hsnCode,
@@ -211,6 +218,7 @@ export async function saveProduct(
       TableName: TABLE_NAMES.PRODUCTS,
       Item: item,
     }));
+    console.log(`[HSN Cache] ✓ Saved: Product ${product.productId} ${product.hsnCode ? `with HSN ${product.hsnCode}` : '(no HSN)'}`);
   } catch (error) {
     console.error('[Products] Error saving product:', error);
   }

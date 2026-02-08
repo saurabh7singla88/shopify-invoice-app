@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useSearchParams, useFetcher } from "react-router";
+import { useLoaderData, useSearchParams, useFetcher, Link } from "react-router";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -63,6 +63,35 @@ export default function Reports() {
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [isCustomDateValid, setIsCustomDateValid] = useState(true);
+
+  // Quick filter helpers
+  const applyQuickFilter = (type: 'month' | 'quarter', value: string) => {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const fiscalYearStart = today.getMonth() >= 3 ? currentYear : currentYear - 1; // April-based FY
+    
+    if (type === 'month') {
+      const [year, month] = value.split('-').map(Number);
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0); // Last day of month
+      setCustomStartDate(startDate.toISOString().split('T')[0]);
+      setCustomEndDate(endDate.toISOString().split('T')[0]);
+    } else if (type === 'quarter') {
+      const quarter = parseInt(value);
+      let startMonth: number, endMonth: number, year: number;
+      
+      // Indian FY quarters (Apr-Jun, Jul-Sep, Oct-Dec, Jan-Mar)
+      if (quarter === 1) { startMonth = 3; endMonth = 5; year = fiscalYearStart; }
+      else if (quarter === 2) { startMonth = 6; endMonth = 8; year = fiscalYearStart; }
+      else if (quarter === 3) { startMonth = 9; endMonth = 11; year = fiscalYearStart; }
+      else { startMonth = 0; endMonth = 2; year = fiscalYearStart + 1; }
+      
+      const startDate = new Date(year, startMonth, 1);
+      const endDate = new Date(year, endMonth + 1, 0);
+      setCustomStartDate(startDate.toISOString().split('T')[0]);
+      setCustomEndDate(endDate.toISOString().split('T')[0]);
+    }
+  };
 
   // Build URL with preserved query params
   const buildApiUrl = useCallback((endpoint: string, params: Record<string, string>) => {
@@ -256,11 +285,79 @@ export default function Reports() {
           </div>
           
           {periodType === "custom" && (
-            <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 500 }}>
-                  Start Date
+            <>
+              {/* Quick Filters */}
+              <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #e5e7eb' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 600, color: '#374151' }}>
+                  Quick Select
                 </label>
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                  {/* Month Selector */}
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px', color: '#6b7280' }}>
+                      Month
+                    </label>
+                    <select
+                      onChange={(e) => e.target.value && applyQuickFilter('month', e.target.value)}
+                      style={{
+                        padding: '6px 10px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        backgroundColor: 'white',
+                        cursor: 'pointer'
+                      }}
+                      defaultValue=""
+                    >
+                      <option value="">Select month...</option>
+                      {(() => {
+                        const today = new Date();
+                        const currentYear = today.getFullYear();
+                        const months = [];
+                        for (let i = 0; i < 12; i++) {
+                          const month = new Date(currentYear, today.getMonth() - i, 1);
+                          const value = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
+                          const label = month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                          months.push(<option key={value} value={value}>{label}</option>);
+                        }
+                        return months;
+                      })()}
+                    </select>
+                  </div>
+
+                  {/* Quarter Selector */}
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px', color: '#6b7280' }}>
+                      Quarter (FY)
+                    </label>
+                    <select
+                      onChange={(e) => e.target.value && applyQuickFilter('quarter', e.target.value)}
+                      style={{
+                        padding: '6px 10px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        backgroundColor: 'white',
+                        cursor: 'pointer'
+                      }}
+                      defaultValue=""
+                    >
+                      <option value="">Select quarter...</option>
+                      <option value="1">Q1 (Apr-Jun)</option>
+                      <option value="2">Q2 (Jul-Sep)</option>
+                      <option value="3">Q3 (Oct-Dec)</option>
+                      <option value="4">Q4 (Jan-Mar)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Manual Date Inputs */}
+              <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 500 }}>
+                    Start Date
+                  </label>
                 <input
                   type="date"
                   value={customStartDate}
@@ -290,7 +387,8 @@ export default function Reports() {
                   }}
                 />
               </div>
-            </div>
+              </div>
+            </>
           )}
           
           {!isCustomDateValid && (
@@ -480,6 +578,22 @@ export default function Reports() {
         {/* HSN Report */}
         {!isLoading && !hasError && activeTab === "hsn" && hsnFetcher.data && (
           <>
+            {/* HSN Setup Disclaimer */}
+            <div style={{ 
+              padding: '12px 16px', 
+              backgroundColor: '#eff6ff', 
+              border: '1px solid #bfdbfe',
+              borderRadius: '8px',
+              marginBottom: '16px',
+              fontSize: '13px',
+              color: '#1e40af'
+            }}>
+              💡 <strong>Tip:</strong> For accurate HSN codes in your reports, configure HSN/SAC codes for your products, refer{' '}
+              <Link to="/app/settings/setup-guide" style={{ color: '#2563eb', textDecoration: 'underline', fontWeight: 500 }}>
+                Settings → HSN Setup
+              </Link>
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
                 {hsnFetcher.data.period}

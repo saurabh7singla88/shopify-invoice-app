@@ -112,7 +112,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       productPayload: payload, // Store complete product data
     });
 
-    console.log(`[Webhook] Product ${payload.id} cached, HSN: ${hsnCode || 'none'}`);
+    if (hsnCode) {
+      console.log(`[HSN Webhook] ✓ Product ${payload.id} (${payload.title}) → HSN ${hsnCode}`);
+    } else {
+      console.log(`[HSN Webhook] ⚠ Product ${payload.id} (${payload.title}) has no HSN code metafield`);
+    }
+
     return jsonResponse({ success: true, cached: true, hasHSN: !!hsnCode });
 
   } catch (error) {
