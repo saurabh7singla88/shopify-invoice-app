@@ -39,6 +39,7 @@ export interface ShopConfig {
   companyState: string;
   companyGSTIN: string | undefined;
   multiWarehouseGST: boolean;
+  taxCalculationMethod?: "app" | "shopify"; // New field
 }
 
 export interface InvoiceGenerationResult {
@@ -136,6 +137,8 @@ export function extractCustomerName(payload: any): string {
  */
 export async function fetchShopConfig(shop: string): Promise<ShopConfig> {
   let shopTemplateId = "minimalist";
+  let configurations: any = {};
+  
   try {
     const shopResult = await dynamodb.send(new GetCommand({
       TableName: TABLE_NAMES.SHOPS,
@@ -143,20 +146,23 @@ export async function fetchShopConfig(shop: string): Promise<ShopConfig> {
     }));
     if (shopResult.Item?.templateId) {
       shopTemplateId = shopResult.Item.templateId;
-      console.log(`[Shop Config] Shop ${shop} uses template: ${shopTemplateId}`);
-    } else {
-      console.log(`[Shop Config] No templateId set for ${shop}, using default: ${shopTemplateId}`);
+    }
+    
+    // Get configurations JSON
+    if (shopResult.Item?.configurations) {
+      configurations = typeof shopResult.Item.configurations === 'string' 
+        ? JSON.parse(shopResult.Item.configurations)
+        : shopResult.Item.configurations;
     }
   } catch (shopError) {
-    console.log(`[Shop Config] Error fetching shop record, using default template:`, shopError);
+    console.error("Error fetching shop record:", shopError);
   }
 
   let templateConfig: any = null;
   try {
     templateConfig = await getTemplateConfiguration(shop, shopTemplateId);
-    console.log(`[Shop Config] Fetched from TemplateConfigurations table`);
   } catch (configError) {
-    console.log("Could not fetch template config:", configError);
+    console.error("Could not fetch template config:", configError);
   }
 
   return {
@@ -165,6 +171,7 @@ export async function fetchShopConfig(shop: string): Promise<ShopConfig> {
     companyState: templateConfig?.company?.state || "Unknown",
     companyGSTIN: templateConfig?.company?.gstin,
     multiWarehouseGST: (templateConfig?.company?.multiWarehouseGST === true) || false,
+    taxCalculationMethod: configurations.taxCalculationMethod || "shopify", // Default to Shopify tax
   };
 }
 
@@ -182,24 +189,19 @@ export async function resolveLocationState(
   companyState: string
 ): Promise<string> {
   const locId = locationId.toString();
-  console.log(`[Location] Resolving location_id: ${locId}`);
 
   try {
     const accessToken = await getShopAccessToken(shop);
     if (accessToken) {
       const locationInfo = await getLocationState(shop, locId, accessToken);
       if (locationInfo.state) {
-        console.log(`[Location] Resolved location ${locId} → state: ${locationInfo.state}`);
         return locationInfo.state;
       }
-    } else {
-      console.log(`[Location] No access token for ${shop}`);
     }
   } catch (locError) {
-    console.log(`[Location] Error resolving location state:`, locError);
+    console.error("Error resolving location state:", locError);
   }
 
-  console.log(`[Location] Using company state fallback: ${companyState}`);
   return companyState;
 }
 
@@ -224,7 +226,7 @@ export async function checkInvoiceExists(orderId: string): Promise<string | null
       return existingInvoice.Items[0].invoiceId;
     }
   } catch (checkError) {
-    console.log("[Idempotency] Error checking existing invoice:", checkError);
+    console.error("Error checking existing invoice:", checkError);
   }
 
   return null;
@@ -250,10 +252,11 @@ export async function generateInvoicePipeline(opts: {
   fulfillmentState: string;
   companyGSTIN: string | undefined;
   source: "webhook-orders-create" | "webhook-orders-updated-fulfillment";
+  taxCalculationMethod?: "app" | "shopify";
   /** Extra fields to merge into the Invoices table record */
   extraInvoiceFields?: Record<string, any>;
 }): Promise<InvoiceGenerationResult> {
-  const { shop, payload, orderName, fulfillmentState, companyGSTIN, source, extraInvoiceFields } = opts;
+  const { shop, payload, orderName, fulfillmentState, companyGSTIN, source, taxCalculationMethod, extraInvoiceFields } = opts;
   const orderId = payload.id?.toString() || orderName;
 
   // 0. Enrich payload with HSN codes from cache
@@ -269,9 +272,8 @@ export async function generateInvoicePipeline(opts: {
         ...payload,
         line_items: enrichedLineItems,
       };
-      console.log(`[InvoicePipeline] Enriched ${enrichedLineItems.length} line items with cached HSN codes`);
     } catch (error) {
-      console.error('[InvoicePipeline] Error enriching HSN codes:', error);
+      console.error('Error enriching HSN codes:', error);
       // Continue with original payload
     }
   }
@@ -279,7 +281,8 @@ export async function generateInvoicePipeline(opts: {
   // 1. Transform order → InvoiceData
   const invoiceData = transformOrderToInvoice(
     enrichedPayload as ShopifyOrderPayload,
-    fulfillmentState
+    fulfillmentState,
+    taxCalculationMethod || "shopify"
   );
   console.log(
     `[InvoicePipeline] Computed ${invoiceData.lineItems.length} line items, ` +

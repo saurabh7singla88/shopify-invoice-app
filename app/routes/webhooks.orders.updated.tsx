@@ -36,7 +36,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     console.log(`Order: ${orderName}, Payment Status: ${paymentStatus}`);
     
     // Log complete webhook payload for debugging
-    console.log(`[orders/updated Payload] COMPLETE PAYLOAD:`, JSON.stringify(payload, null, 2));
+    // console.log(`[orders/updated Payload] COMPLETE PAYLOAD:`, JSON.stringify(payload, null, 2));
     
     // Log key status fields
     console.log(`[orders/updated Payload] Key fields:`, JSON.stringify({
@@ -248,6 +248,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
               fulfillmentState: fulfillmentLocationState,
               companyGSTIN: shopConfig.companyGSTIN,
               source: "webhook-orders-updated-fulfillment",
+              taxCalculationMethod: shopConfig.taxCalculationMethod,
               extraInvoiceFields: {
                 generatedAt: "fulfillment",
                 fulfillmentLocationId: fulfillmentLocId || "",

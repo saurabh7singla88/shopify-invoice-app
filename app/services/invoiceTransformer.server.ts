@@ -272,11 +272,13 @@ function extractCustomerName(order: ShopifyOrderPayload): string {
  *
  * @param shopifyOrder - Raw Shopify order webhook payload
  * @param companyState - Seller's state (from shop config)
+ * @param taxCalculationMethod - "app" (legacy logic) or "shopify" (use Shopify's tax_lines)
  * @returns InvoiceData ready for PDF generation + GST reporting
  */
 export function transformOrderToInvoice(
   shopifyOrder: ShopifyOrderPayload,
-  companyState: string
+  companyState: string,
+  taxCalculationMethod: "app" | "shopify" = "shopify"
 ): InvoiceData {
   const currencySymbol =
     shopifyOrder.currency === "INR" ? "Rs." : shopifyOrder.currency;
@@ -344,23 +346,53 @@ export function transformOrderToInvoice(
         (_, unitIndex) => {
           const hasDiscount = unitIndex === 0 && discountToUse > 0;
 
-          // Start with 5% assumption
           let taxRate = 0.05;
-          let taxDivisor = 1.05;
-          let sellingPriceBase = sellingPriceWithTax / taxDivisor;
-
-          const priceAfterDiscount = hasDiscount
-            ? sellingPriceBase - discountToUse
-            : sellingPriceBase;
-
-          // Re-evaluate: if price after discount >= ₹2500 → 18%
-          if (priceAfterDiscount >= 2500) {
-            taxRate = 0.18;
-            taxDivisor = 1.18;
+          let perUnitTax = 0;
+          let sellingPriceBase = 0;
+          
+          // Method 1: Use Shopify's tax_lines if method is "shopify"
+          if (taxCalculationMethod === "shopify") {
+            if (item.tax_lines && item.tax_lines.length > 0) {
+              // Use Shopify's tax data
+              const totalLineTax = item.tax_lines.reduce((sum, taxLine) => sum + parseFloat(taxLine.price || "0"), 0);
+              perUnitTax = totalLineTax / itemQuantity; // Per-unit tax
+              
+              // Calculate tax rate from Shopify's data
+              if (item.tax_lines[0]?.rate) {
+                taxRate = item.tax_lines[0].rate;
+              } else if (totalLineTax > 0 && sellingPriceWithTax > 0) {
+                // Calculate rate backwards: tax / (price - tax)
+                const taxableAmount = (parseFloat(item.price) * itemQuantity) - totalLineTax;
+                taxRate = taxableAmount > 0 ? totalLineTax / taxableAmount : 0;
+              }
+              
+              sellingPriceBase = sellingPriceWithTax - perUnitTax;
+            } else {
+              // No tax data from Shopify → treat as 0% tax (no fallback)
+              taxRate = 0;
+              perUnitTax = 0;
+              sellingPriceBase = sellingPriceWithTax;
+            }
+          } else {
+            // Method 2: App's legacy tax calculation logic
+            // Start with 5% assumption
+            let taxDivisor = 1.05;
             sellingPriceBase = sellingPriceWithTax / taxDivisor;
+
+            const priceAfterDiscount = hasDiscount
+              ? sellingPriceBase - discountToUse
+              : sellingPriceBase;
+
+            // Re-evaluate: if price after discount >= ₹2500 → 18%
+            if (priceAfterDiscount >= 2500) {
+              taxRate = 0.18;
+              taxDivisor = 1.18;
+              sellingPriceBase = sellingPriceWithTax / taxDivisor;
+            }
+
+            perUnitTax = sellingPriceWithTax - sellingPriceBase;
           }
 
-          const perUnitTax = sellingPriceWithTax - sellingPriceBase;
           const finalPriceAfterDiscount = hasDiscount
             ? sellingPriceBase - discountToUse
             : sellingPriceBase;

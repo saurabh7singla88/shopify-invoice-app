@@ -34,7 +34,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     console.log(`Order ID: ${payload.id}, Name: ${payload.name}`);
     
     // Log complete webhook payload for debugging
-    console.log(`[Webhook Payload] COMPLETE PAYLOAD:`, JSON.stringify(payload, null, 2));
+    // console.log(`[Webhook Payload] COMPLETE PAYLOAD:`, JSON.stringify(payload, null, 2));
     
     // Log specific fields we're interested in
     console.log(`[Webhook Payload] location_id: ${payload.location_id}`);
@@ -180,6 +180,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // ── Generate invoice (transform + GST + PDF + save) ──────────────────
     let invoiceResult;
     try {
+      console.log("[OrdersCreate] About to call generateInvoicePipeline");
+      console.log("[OrdersCreate] shopConfig:", JSON.stringify(shopConfig, null, 2));
+      console.log("[OrdersCreate] taxCalculationMethod from shopConfig:", shopConfig.taxCalculationMethod);
+      
       invoiceResult = await generateInvoicePipeline({
         shop,
         payload,
@@ -187,6 +191,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         fulfillmentState,
         companyGSTIN,
         source: "webhook-orders-create",
+        taxCalculationMethod: shopConfig.taxCalculationMethod,
       });
     } catch (pipelineError) {
       console.error("Error in invoice pipeline:", pipelineError);

@@ -16,10 +16,12 @@ export default function Settings() {
   // Determine active section from URL
   useEffect(() => {
     if (location.pathname.includes("setup-guide")) setActiveSection("setup-guide");
+    else if (location.pathname.includes("tax-config")) setActiveSection("tax-config");
   }, [location.pathname]);
 
   const sections = [
     { id: "setup-guide", label: "Setup Guide", icon: "📋", path: "/app/settings/setup-guide" },
+    { id: "tax-config", label: "Tax Configuration", icon: "🧮", path: "/app/settings/tax-config" },
   ];
 
   return (

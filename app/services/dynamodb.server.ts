@@ -16,25 +16,37 @@ const AUDIT_LOGS_TABLE = TABLE_NAMES.AUDIT_LOGS;
 
 /**
  * Create or update shop record on app installation
+ * Uses UpdateCommand to preserve existing fields like configurations
  */
 export async function upsertShop(shop: string, accessToken: string, scopes: string) {
   const now = Date.now();
   
   try {
-    await dynamodb.send(new PutCommand({
+    // First check if shop exists to set installedAt only on first install
+    const existingShop = await dynamodb.send(new GetCommand({
       TableName: SHOPS_TABLE,
-      Item: {
-        shop,
-        accessToken,
-        scopes,
-        isActive: true,
-        templateId: "minimalist", // Set default template
-        installedAt: now,
-        updatedAt: now,
+      Key: { shop },
+    }));
+    
+    const isFirstInstall = !existingShop.Item;
+    
+    // Use UpdateCommand to preserve existing fields like configurations
+    await dynamodb.send(new UpdateCommand({
+      TableName: SHOPS_TABLE,
+      Key: { shop },
+      UpdateExpression: isFirstInstall 
+        ? "SET accessToken = :token, scopes = :scopes, isActive = :active, templateId = if_not_exists(templateId, :templateId), installedAt = :now, updatedAt = :now"
+        : "SET accessToken = :token, scopes = :scopes, isActive = :active, templateId = if_not_exists(templateId, :templateId), updatedAt = :now",
+      ExpressionAttributeValues: {
+        ":token": accessToken,
+        ":scopes": scopes,
+        ":active": true,
+        ":templateId": "minimalist",
+        ":now": now,
       },
     }));
     
-    console.log(`Shop ${shop} record created/updated successfully`);
+    console.log(`Shop ${shop} record created/updated successfully (preserving configurations)`);
     return { success: true };
   } catch (error) {
     console.error(`Error upserting shop ${shop}:`, error);
