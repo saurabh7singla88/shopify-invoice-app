@@ -6,7 +6,7 @@
  */
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, QueryCommand, BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { TABLE_NAMES } from "../constants/tables";
 import { fetchProductHSNCodes } from "./productMetafields.server";
 
@@ -49,13 +49,7 @@ export async function getCachedHSNCode(
       Key: { shopProductId },
     }));
 
-    const hsnCode = result.Item?.hsnCode || null;
-    if (hsnCode) {
-      console.log(`[HSN Cache] ✓ Hit: Product ${productId} → HSN ${hsnCode}`);
-    } else {
-      console.log(`[HSN Cache] ✗ Miss: Product ${productId} not in cache`);
-    }
-    return hsnCode;
+    return result.Item?.hsnCode || null;
   } catch (error) {
     console.error('[Products] Error fetching cached HSN:', error);
     return null;
@@ -103,27 +97,20 @@ export async function getHSNCodeWithFallback(
   }
 
   // Fallback to live fetch if admin client available
-  if (!admin) {
-    console.log(`[HSN Fetch] No admin client available for product ${productId}`);
-    return null;
-  }
+  if (!admin) return null;
 
   try {
-    console.log(`[HSN Fetch] Fetching from Shopify API for product ${productId}...`);
     const hsn = await fetchProductHSNCodes(admin, [productId]);
     const hsnCode = hsn.get(productId.toString());
 
     // Cache for next time
     if (hsnCode) {
-      console.log(`[HSN Fetch] ✓ Found HSN ${hsnCode} for product ${productId}, caching...`);
       await saveProduct(shop, {
         productId: productId.toString(),
         hsnCode,
-        title: '', // Will be updated by product webhook
+        title: '',
         updatedAt: new Date().toISOString(),
       });
-    } else {
-      console.log(`[HSN Fetch] ✗ No HSN metafield found for product ${productId}`);
     }
 
     return hsnCode || null;
@@ -160,17 +147,12 @@ export async function getHSNCodesForLineItems(
 
   // Fetch missing from Shopify if admin client available
   if (missingIds.length > 0 && admin) {
-    console.log(`[HSN Fetch] Cache miss for ${missingIds.length} products: ${missingIds.join(', ')}`);
     try {
       const fetchedHSN = await fetchProductHSNCodes(admin, missingIds);
-      console.log(`[HSN Fetch] Fetched ${fetchedHSN.size} HSN codes from Shopify API`);
 
-      // Merge with cached results
+      // Merge with cached results and save to cache
       for (const [productId, hsnCode] of fetchedHSN) {
-        console.log(`[HSN Fetch] Product ${productId} → HSN ${hsnCode}`);
         cachedHSN.set(productId, hsnCode);
-
-        // Save to cache for next time
         await saveProduct(shop, {
           productId,
           hsnCode,
@@ -181,8 +163,6 @@ export async function getHSNCodesForLineItems(
     } catch (error) {
       console.error('[Products] Error fetching missing HSN codes:', error);
     }
-  } else if (missingIds.length > 0) {
-    console.log(`[HSN Fetch] ${missingIds.length} products not in cache, but no admin client available`);
   }
 
   return cachedHSN;
@@ -231,7 +211,6 @@ export async function saveProduct(
       TableName: TABLE_NAMES.PRODUCTS,
       Item: item,
     }));
-    console.log(`[HSN Cache] ✓ Saved: Product ${product.productId} ${product.hsnCode ? `with HSN ${product.hsnCode}` : '(no HSN)'}`);
   } catch (error) {
     console.error('[Products] Error saving product:', error);
   }
@@ -306,9 +285,10 @@ export async function deleteProduct(
   productId: string
 ): Promise<void> {
   try {
-    await dynamodb.send(new PutCommand({
+    const shopProductId = `${shop}#${productId}`;
+    await dynamodb.send(new DeleteCommand({
       TableName: TABLE_NAMES.PRODUCTS,
-      Key: { shop, productId: productId.toString() },
+      Key: { shopProductId },
     }));
     console.log(`[Products] Deleted product ${productId} for shop ${shop}`);
   } catch (error) {

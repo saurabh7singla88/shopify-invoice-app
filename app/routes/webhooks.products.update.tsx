@@ -26,7 +26,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // ── Parse webhook context ────────────────────────────────────────────
     const { payload, shop } = parseWebhookContext(request, rawBody, "products/update");
 
-    console.log(`[Webhook] Product updated - ID: ${payload.id}, Shop: ${shop}`);
+    console.log(`[Webhook] Product updated - ID: ${payload.id}, Title: ${payload.title}, Shop: ${shop}`);
 
     // Fetch HSN metafield from Shopify (webhooks don't include metafields by default)
     let hsnCode: string | undefined;
@@ -76,8 +76,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           },
         });
         
-        console.log(`[HSN Webhook] GraphQL response:`, JSON.stringify(response, null, 2));
-        
         // Find HSN metafield from the list
         const metafields = response?.data?.product?.metafields?.edges || [];
         
@@ -91,15 +89,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           hsnMetafield = metafields.find((edge: any) => 
             edge.node.key.toLowerCase().includes("hsn")
           );
-          if (hsnMetafield) {
-            console.log(`[HSN Webhook] Using fallback metafield: ${hsnMetafield.node.namespace}.${hsnMetafield.node.key}`);
-          }
         }
         
         hsnCode = hsnMetafield?.node?.value || undefined;
-        
-        console.log(`[HSN Webhook] All metafields:`, metafields.map((e: any) => `${e.node.namespace}.${e.node.key}=${e.node.value}`).join(', ') || 'none');
-        console.log(`[HSN Webhook] Fetched metafield for product ${payload.id}: ${hsnCode || 'not found'}`);
       }
     } catch (error) {
       console.error(`[HSN Webhook] Error fetching metafield:`, error);
@@ -120,16 +112,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       productPayload: payload, // Store complete product data
     });
 
-    if (hsnCode) {
-      console.log(`[HSN Webhook] ✓ Product ${payload.id} (${payload.title}) → HSN ${hsnCode}`);
-    } else {
-      console.log(`[HSN Webhook] ⚠ Product ${payload.id} (${payload.title}) has no HSN code metafield`);
-    }
-
+    console.log(`[Webhook] Product ${payload.id} cached, HSN: ${hsnCode || 'none'}`);
     return jsonResponse({ success: true, cached: true, hasHSN: !!hsnCode });
 
   } catch (error) {
     console.error("[Webhook] Error processing products/update:", error);
-    return errorResponse(error);
+    return errorResponse("Error processing products/update webhook", error);
   }
 };

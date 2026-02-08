@@ -36,13 +36,6 @@ export async function enrichLineItemsWithHSN(
   // Get HSN codes using cache + fallback
   const hsnMap = await getHSNCodesForLineItems(shop, lineItems, admin);
   
-  console.log(`[HSN Enrich] Found ${hsnMap.size} HSN codes for ${lineItems.length} line items`);
-  if (hsnMap.size > 0) {
-    for (const [productId, hsnCode] of hsnMap) {
-      console.log(`[HSN Enrich] Product ${productId} → HSN ${hsnCode}`);
-    }
-  }
-
   // Enrich line items
   return lineItems.map(item => {
     const productId = item.product_id?.toString();
@@ -75,6 +68,8 @@ export async function enrichLineItemsWithHSN(
 
 /**
  * Fetch HSN codes for multiple products directly from Shopify (bypasses cache)
+ */
+export async function fetchProductHSNCodes(
   admin: any,
   productIds: string[]
 ): Promise<Map<string, string>> {
