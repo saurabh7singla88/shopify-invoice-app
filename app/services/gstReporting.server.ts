@@ -465,6 +465,7 @@ export async function generateB2CReport(
     placeOfSupply: string;
     placeOfSupplyCode?: string;
     rate: number;
+    totalQuantity: number;
     totalTaxableValue: number;
     integratedTax: number;
     centralTax: number;
@@ -473,6 +474,7 @@ export async function generateB2CReport(
   }>;
   totals: {
     taxableValue: number;
+    totalQuantity: number;
     integratedTax: number;
     centralTax: number;
     stateTax: number;
@@ -488,6 +490,7 @@ export async function generateB2CReport(
       placeOfSupply: string;
       placeOfSupplyCode?: string;
       rate: number;
+      totalQuantity: number;
       totalTaxableValue: number;
       integratedTax: number;
       centralTax: number;
@@ -508,6 +511,7 @@ export async function generateB2CReport(
         placeOfSupply: record.placeOfSupply,
         placeOfSupplyCode: record.placeOfSupplyCode,
         rate: record.taxRate,
+        totalQuantity: 0,
         totalTaxableValue: 0,
         integratedTax: 0,
         centralTax: 0,
@@ -517,6 +521,7 @@ export async function generateB2CReport(
     }
     
     const entry = grouped.get(key)!;
+    entry.totalQuantity += record.quantity;
     entry.totalTaxableValue += record.taxableValue;
     entry.integratedTax += record.igst;
     entry.centralTax += record.cgst;
@@ -535,6 +540,7 @@ export async function generateB2CReport(
   const totals = data.reduce(
     (acc, item) => ({
       taxableValue: acc.taxableValue + item.totalTaxableValue,
+      totalQuantity: acc.totalQuantity + item.totalQuantity,
       integratedTax: acc.integratedTax + item.integratedTax,
       centralTax: acc.centralTax + item.centralTax,
       stateTax: acc.stateTax + item.stateTax,
@@ -542,6 +548,7 @@ export async function generateB2CReport(
     }),
     {
       taxableValue: 0,
+      totalQuantity: 0,
       integratedTax: 0,
       centralTax: 0,
       stateTax: 0,
@@ -586,7 +593,7 @@ export async function generateHSNReport(
 }> {
   const records = await queryGSTDataByDateRange(shop, startDate, endDate);
   
-  // Group by HSN
+  // Group by HSN + Tax Rate (as per GSTR-1 requirement)
   const grouped = new Map<
     string,
     {
@@ -610,16 +617,20 @@ export async function generateHSNReport(
     if (record.status === "cancelled") return;
     
     const hsn = record.hsn || "UNCLASSIFIED";
+    const taxRate = record.taxRate || 0;
     
-    if (!grouped.has(hsn)) {
-      grouped.set(hsn, {
+    // Create composite key: HSN + TaxRate
+    const groupKey = `${hsn}#${taxRate}`;
+    
+    if (!grouped.has(groupKey)) {
+      grouped.set(groupKey, {
         hsn,
         description: "", // Can be populated from product data
         hsnDescription: record.hsnDescription,
         uqc: record.uqc,
         totalQuantity: 0,
         totalTaxableValue: 0,
-        rate: record.taxRate, // Most common rate for this HSN
+        rate: taxRate,
         integratedTax: 0,
         centralTax: 0,
         stateTax: 0,
@@ -627,7 +638,7 @@ export async function generateHSNReport(
       });
     }
     
-    const entry = grouped.get(hsn)!;
+    const entry = grouped.get(groupKey)!;
     entry.totalQuantity += record.quantity;
     entry.totalTaxableValue += record.taxableValue;
     entry.integratedTax += record.igst;
@@ -637,7 +648,12 @@ export async function generateHSNReport(
   });
   
   const data = Array.from(grouped.values())
-    .sort((a, b) => a.hsn.localeCompare(b.hsn))
+    .sort((a, b) => {
+      // Sort by HSN first, then by tax rate
+      const hsnCompare = a.hsn.localeCompare(b.hsn);
+      if (hsnCompare !== 0) return hsnCompare;
+      return a.rate - b.rate;
+    })
     .map((item, index) => ({
       ...item,
       srNo: index + 1,

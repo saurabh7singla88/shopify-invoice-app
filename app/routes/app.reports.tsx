@@ -19,6 +19,7 @@ interface B2CReportData {
   placeOfSupply: string;
   placeOfSupplyCode?: string;
   rate: number;
+  totalQuantity: number;
   totalTaxableValue: number;
   integratedTax: number;
   centralTax: number;
@@ -158,14 +159,14 @@ export default function Reports() {
     if (reportType === "b2c") {
       csvContent = "GSTR-1 B2C (Others) Report\n";
       csvContent += `Period: ${period}\n\n`;
-      csvContent += "Place of Supply,State Code,Rate (%),Taxable Value,Integrated Tax,Central Tax,State Tax,Cess\n";
+      csvContent += "Place of Supply,State Code,Rate (%),Quantity,Taxable Value,Integrated Tax,Central Tax,State Tax,Cess\n";
       
       (data as B2CReportData[]).forEach(row => {
-        csvContent += `"${row.placeOfSupply}",${row.placeOfSupplyCode || ''},${row.rate},${row.totalTaxableValue},${row.integratedTax},${row.centralTax},${row.stateTax},${row.cess}\n`;
+        csvContent += `"${row.placeOfSupply}",${row.placeOfSupplyCode || ''},${row.rate},${row.totalQuantity},${row.totalTaxableValue},${row.integratedTax},${row.centralTax},${row.stateTax},${row.cess}\n`;
       });
       
       if (totals) {
-        csvContent += `\nTotals,,,"${totals.taxableValue}","${totals.integratedTax}","${totals.centralTax}","${totals.stateTax}","${totals.cess}"\n`;
+        csvContent += `\nTotals,,,${totals.totalQuantity || 0},"${totals.taxableValue}","${totals.integratedTax}","${totals.centralTax}","${totals.stateTax}","${totals.cess}"\n`;
       }
     } else {
       csvContent = "HSN-wise Summary Report\n";
@@ -429,6 +430,7 @@ export default function Reports() {
                   <tr style={{ backgroundColor: '#f9fafb' }}>
                     <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Place of Supply</th>
                     <th style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Rate (%)</th>
+                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Quantity</th>
                     <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Taxable Value</th>
                     <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Integrated Tax</th>
                     <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Central Tax</th>
@@ -444,6 +446,7 @@ export default function Reports() {
                         {row.placeOfSupplyCode && <span style={{ color: '#6b7280', marginLeft: '4px' }}>({row.placeOfSupplyCode})</span>}
                       </td>
                       <td style={{ padding: '12px', textAlign: 'center' }}>{row.rate}%</td>
+                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{row.totalQuantity}</td>
                       <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.totalTaxableValue)}</td>
                       <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.integratedTax)}</td>
                       <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.centralTax)}</td>
@@ -455,6 +458,7 @@ export default function Reports() {
                 <tfoot>
                   <tr style={{ backgroundColor: '#f9fafb', fontWeight: 600 }}>
                     <td style={{ padding: '12px' }} colSpan={2}>Total</td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{b2cFetcher.data.totals.totalQuantity || 0}</td>
                     <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(b2cFetcher.data.totals.taxableValue || 0)}</td>
                     <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(b2cFetcher.data.totals.integratedTax)}</td>
                     <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(b2cFetcher.data.totals.centralTax)}</td>
@@ -523,7 +527,7 @@ export default function Reports() {
                         {row.description || row.hsnDescription || '-'}
                       </td>
                       <td style={{ padding: '12px', textAlign: 'center' }}>{row.uqc}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatNumber(row.totalQuantity)}</td>
+                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{row.totalQuantity}</td>
                       <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.totalTaxableValue)}</td>
                       <td style={{ padding: '12px', textAlign: 'center' }}>{row.rate}%</td>
                       <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.integratedTax)}</td>
@@ -536,7 +540,7 @@ export default function Reports() {
                 <tfoot>
                   <tr style={{ backgroundColor: '#f9fafb', fontWeight: 600 }}>
                     <td style={{ padding: '12px' }} colSpan={4}>Total</td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatNumber(hsnFetcher.data.totals.totalQuantity || 0)}</td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{hsnFetcher.data.totals.totalQuantity || 0}</td>
                     <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(hsnFetcher.data.totals.totalTaxableValue || 0)}</td>
                     <td style={{ padding: '12px' }}></td>
                     <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(hsnFetcher.data.totals.integratedTax)}</td>

@@ -67,6 +67,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     // Round all values to 2 decimal places
     const formattedData = report.data.map((item) => ({
       ...item,
+      totalQuantity: Math.round(item.totalQuantity),
       totalTaxableValue: roundToTwo(item.totalTaxableValue),
       integratedTax: roundToTwo(item.integratedTax),
       centralTax: roundToTwo(item.centralTax),
@@ -76,6 +77,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     
     const formattedTotals = {
       taxableValue: roundToTwo(report.totals.taxableValue),
+      totalQuantity: Math.round(report.totals.totalQuantity),
       integratedTax: roundToTwo(report.totals.integratedTax),
       centralTax: roundToTwo(report.totals.centralTax),
       stateTax: roundToTwo(report.totals.stateTax),

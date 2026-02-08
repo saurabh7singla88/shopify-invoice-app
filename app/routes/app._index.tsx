@@ -79,7 +79,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const displayOrders = sortedOrders.slice(startIndex, endIndex);
 
     // Calculate stats from ALL orders (not just paginated)
-    const activeCount = allItems.filter((o: any) => o.s3Key && o.status !== 'Cancelled' && o.status !== 'Returned').length;
+    // Active count based on fulfillment status, not invoice generation
+    const activeCount = allItems.filter((o: any) => o.status !== 'Cancelled' && o.status !== 'Returned').length;
     const cancelledCount = allItems.filter((o: any) => o.status === 'Cancelled').length;
     const returnedCount = allItems.filter((o: any) => o.status === 'Returned').length;
 
@@ -247,7 +248,7 @@ export default function Index() {
                 <div style={{ fontSize: '24px', fontWeight: '600', color: '#111827', marginBottom: '4px' }}>
                   {activeCount}
                 </div>
-                <div style={{ fontSize: '13px', color: '#6b7280' }}>Active Invoices</div>
+                <div style={{ fontSize: '13px', color: '#6b7280' }}>Active</div>
               </div>
 
               <div style={{ 
