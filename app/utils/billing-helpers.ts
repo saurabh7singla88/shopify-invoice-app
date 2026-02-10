@@ -3,7 +3,7 @@
  * Provides consistent billing checks with development mode overrides
  */
 
-const DEV_MODE = process.env.NODE_ENV === "development" || process.env.ENABLE_DEV_BILLING === "true";
+const DEV_MODE = process.env.ENABLE_DEV_BILLING === "true";
 
 // Set this to the plan you want to simulate in development
 const DEV_PLAN = process.env.DEV_BILLING_PLAN || "Advanced Monthly"; // Change as needed: "Free", "Basic Monthly", "Premium Monthly", "Advanced Monthly"

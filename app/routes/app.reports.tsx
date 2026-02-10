@@ -587,14 +587,15 @@ export default function Reports() {
                   justifyContent: 'center',
                   zIndex: 10,
                   borderRadius: '8px',
-                  padding: '48px 24px',
-                  textAlign: 'center'
+                  padding: '12px',
+                  textAlign: 'center',
+                  overflow: 'auto'
                 }}>
-                  <div style={{ fontSize: '64px', marginBottom: '24px' }}>🔒</div>
-                  <h2 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '12px', color: '#111827' }}>
+                  <div style={{ fontSize: '28px', marginBottom: '2px' }}>🔒</div>
+                  <h2 style={{ fontSize: '20px', fontWeight: '600', marginBottom: '4px', color: '#111827' }}>
                     Premium Feature
                   </h2>
-                  <p style={{ fontSize: '16px', color: '#374151', marginBottom: '32px', lineHeight: '1.6', maxWidth: '500px' }}>
+                  <p style={{ fontSize: '14px', color: '#374151', marginBottom: '20px', lineHeight: '1.5', maxWidth: '500px' }}>
                     GSTR-1 & HSN (Ready to Submit) reports are available on Basic, Premium, and Advanced plans.
                     Upgrade to access GST-compliant reports ready for filing.
                   </p>
@@ -742,14 +743,15 @@ export default function Reports() {
                   justifyContent: 'center',
                   zIndex: 10,
                   borderRadius: '8px',
-                  padding: '48px 24px',
-                  textAlign: 'center'
+                  padding: '12px',
+                  textAlign: 'center',
+                  overflow: 'auto'
                 }}>
-                  <div style={{ fontSize: '64px', marginBottom: '24px' }}>🔒</div>
-                  <h2 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '12px', color: '#111827' }}>
+                  <div style={{ fontSize: '28px', marginBottom: '2px' }}>🔒</div>
+                  <h2 style={{ fontSize: '20px', fontWeight: '600', marginBottom: '4px', color: '#111827' }}>
                     Premium Feature
                   </h2>
-                  <p style={{ fontSize: '16px', color: '#374151', marginBottom: '32px', lineHeight: '1.6', maxWidth: '500px' }}>
+                  <p style={{ fontSize: '14px', color: '#374151', marginBottom: '20px', lineHeight: '1.5', maxWidth: '500px' }}>
                     GSTR-1 & HSN (Ready to Submit) reports are available on Basic, Premium, and Advanced plans.
                     Upgrade to access GST-compliant reports ready for filing.
                   </p>
