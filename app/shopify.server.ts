@@ -21,10 +21,71 @@ const shopify = shopifyApp({
       region: process.env.AWS_REGION || "us-east-1",
     },
   }),
-  distribution: AppDistribution.AppStore,
   isEmbeddedApp: true,
   future: {
     unstable_newEmbeddedAuthStrategy: true,
+  },
+  billing: {
+    "Basic Monthly": {
+      lineItems: [
+        {
+          amount: 7.99,
+          currencyCode: "USD",
+          interval: "EVERY_30_DAYS",
+        },
+      ],
+      trialDays: 30,
+    },
+    "Basic Annual": {
+      lineItems: [
+        {
+          amount: 79.99,
+          currencyCode: "USD",
+          interval: "ANNUAL",
+        },
+      ],
+      trialDays: 30,
+    },
+    "Premium Monthly": {
+      lineItems: [
+        {
+          amount: 14.99,
+          currencyCode: "USD",
+          interval: "EVERY_30_DAYS",
+        },
+      ],
+      trialDays: 30,
+    },
+    "Premium Annual": {
+      lineItems: [
+        {
+          amount: 149.99,
+          currencyCode: "USD",
+          interval: "ANNUAL",
+        },
+      ],
+      trialDays: 30,
+    },
+    "Advanced Monthly": {
+      lineItems: [
+        {
+          amount: 39.99,
+          currencyCode: "USD",
+          interval: "EVERY_30_DAYS",
+        },
+      ],
+      trialDays: 30,
+    },
+    "Advanced Annual": {
+      lineItems: [
+        {
+          amount: 399.99,
+          currencyCode: "USD",
+          interval: "ANNUAL",
+        },
+      ],
+      trialDays: 30,
+    },
   },
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }

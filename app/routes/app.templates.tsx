@@ -2,10 +2,24 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useNavigate, useSearchParams, Link, Outlet } from "react-router";
 import { authenticate } from "../shopify.server";
+import { hasMultipleTemplates } from "../utils/billing-helpers";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { billing } = await authenticate.admin(request);
+  
+  // Check if user has Premium or Advanced plan for multiple templates
+  const billingCheck = await billing.check({
+    plans: ["Premium Monthly", "Premium Annual", "Advanced Monthly", "Advanced Annual"],
+    isTest: process.env.NODE_ENV !== "production",
+  });
+  
+  let currentPlan = "Free";
+  if (billingCheck.appSubscriptions.length > 0) {
+    currentPlan = billingCheck.appSubscriptions[0].name;
+  }
+  
+  const hasAccess = hasMultipleTemplates(currentPlan);
   
   // Fetch available templates from the generator system
   const templates = [
@@ -61,11 +75,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // In production, this would fetch from database
   const selectedTemplate = "minimalist";
   
-  return { selectedTemplate, templates };
+  return { selectedTemplate, templates, hasMultipleTemplates: hasAccess };
 };
 
 export default function Templates() {
-  const { selectedTemplate, templates } = useLoaderData<typeof loader>();
+  const { selectedTemplate, templates, hasMultipleTemplates } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState("templates");
@@ -191,6 +205,33 @@ export default function Templates() {
         {/* Available Templates */}
         <div>
           <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>Available Templates</h2>
+          
+          {!hasMultipleTemplates && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '16px',
+              backgroundColor: '#fef3c7',
+              border: '1px solid #fbbf24',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <span style={{ fontSize: '20px' }}>🔒</span>
+              <div>
+                <div style={{ fontWeight: '600', color: '#92400e' }}>
+                  Premium Feature
+                </div>
+                <div style={{ fontSize: '13px', color: '#78350f', marginTop: '4px' }}>
+                  Upgrade to Premium or Advanced plan to unlock multiple templates.{' '}
+                  <Link to="/app/pricing" style={{ textDecoration: 'underline', fontWeight: '500' }}>
+                    View Plans
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
+          
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
             {availableTemplates.map((template) => (
               <div
@@ -244,22 +285,27 @@ export default function Templates() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      // Handle template selection
-                      alert(`Selected template: ${template.name}`);
+                      if (!hasMultipleTemplates) {
+                        navigate('/app/pricing');
+                      } else {
+                        // Handle template selection
+                        alert(`Selected template: ${template.name}`);
+                      }
                     }}
                     style={{
                       padding: '8px 16px',
-                      backgroundColor: 'white',
-                      color: '#1f2937',
+                      backgroundColor: hasMultipleTemplates ? 'white' : '#f3f4f6',
+                      color: hasMultipleTemplates ? '#1f2937' : '#9ca3af',
                       border: '1px solid #d1d5db',
                       borderRadius: '6px',
                       fontSize: '13px',
                       fontWeight: '500',
-                      cursor: 'pointer',
+                      cursor: hasMultipleTemplates ? 'pointer' : 'not-allowed',
                       width: '100%',
                     }}
+                    disabled={!hasMultipleTemplates}
                   >
-                    Select Template
+                    {hasMultipleTemplates ? 'Select Template' : '🔒 Upgrade to Unlock'}
                   </button>
                 </div>
               </div>

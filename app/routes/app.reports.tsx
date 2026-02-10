@@ -7,10 +7,29 @@ import { useState, useEffect, useCallback } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useSearchParams, useFetcher, Link } from "react-router";
 import { authenticate } from "../shopify.server";
+import { hasGSTRAccess } from "../utils/billing-helpers";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
-  return { timestamp: Date.now() };
+  const { billing } = await authenticate.admin(request);
+  
+  // Check if user has Basic or higher plan for GSTR reports
+  const billingCheck = await billing.check({
+    plans: [
+      "Basic Monthly", "Basic Annual",
+      "Premium Monthly", "Premium Annual", 
+      "Advanced Monthly", "Advanced Annual"
+    ],
+    isTest: process.env.NODE_ENV !== "production",
+  });
+  
+  let currentPlan = "Free";
+  if (billingCheck.appSubscriptions.length > 0) {
+    currentPlan = billingCheck.appSubscriptions[0].name;
+  }
+  
+  const hasAccess = hasGSTRAccess(currentPlan);
+  
+  return { timestamp: Date.now(), hasGSTRAccess: hasAccess };
 };
 
 type PeriodType = "monthly" | "quarterly" | "yearly" | "custom";
@@ -54,6 +73,7 @@ interface ReportTotals {
 
 export default function Reports() {
   const loaderData = useLoaderData<typeof loader>();
+  const { hasGSTRAccess } = loaderData;
   const [searchParams] = useSearchParams();
   const b2cFetcher = useFetcher<{ data: B2CReportData[]; totals: ReportTotals; period: string }>();
   const hsnFetcher = useFetcher<{ data: HSNReportData[]; totals: ReportTotals; period: string }>();
@@ -63,6 +83,23 @@ export default function Reports() {
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [isCustomDateValid, setIsCustomDateValid] = useState(true);
+  
+  // Get current month for preview
+  const currentDate = new Date();
+  const currentMonthYear = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  
+  // Mock data for preview when user doesn't have access
+  const mockB2CData: B2CReportData[] = [
+    { placeOfSupply: "Maharashtra", placeOfSupplyCode: "27", rate: 18, totalQuantity: 125, totalTaxableValue: 45890.50, integratedTax: 0, centralTax: 4130.15, stateTax: 4130.15, cess: 0 },
+    { placeOfSupply: "Karnataka", placeOfSupplyCode: "29", rate: 18, totalQuantity: 87, totalTaxableValue: 32450.75, integratedTax: 5841.14, centralTax: 0, stateTax: 0, cess: 0 },
+    { placeOfSupply: "Delhi", placeOfSupplyCode: "07", rate: 5, totalQuantity: 230, totalTaxableValue: 68920.00, integratedTax: 3446.00, centralTax: 0, stateTax: 0, cess: 0 },
+  ];
+  
+  const mockHSNData: HSNReportData[] = [
+    { srNo: 1, hsn: "6403", description: "Footwear", uqc: "PCS", totalQuantity: 125, totalTaxableValue: 45890.50, rate: 18, integratedTax: 0, centralTax: 4130.15, stateTax: 4130.15, cess: 0 },
+    { srNo: 2, hsn: "6201", description: "Men's Overcoats", uqc: "PCS", totalQuantity: 87, totalTaxableValue: 32450.75, rate: 18, integratedTax: 5841.14, centralTax: 0, stateTax: 0, cess: 0 },
+    { srNo: 3, hsn: "0901", description: "Coffee", uqc: "KGS", totalQuantity: 230, totalTaxableValue: 68920.00, rate: 5, integratedTax: 3446.00, centralTax: 0, stateTax: 0, cess: 0 },
+  ];
 
   // Quick filter helpers
   const applyQuickFilter = (type: 'month' | 'quarter', value: string) => {
@@ -140,6 +177,7 @@ export default function Reports() {
 
   // Load reports on mount and when filters change (but not on every render)
   useEffect(() => {
+    if (!hasGSTRAccess) return; // Don't fetch for free users
     if (periodType === "custom" && (!customStartDate || !customEndDate)) {
       return; // Don't fetch until dates are set
     }
@@ -234,51 +272,57 @@ export default function Reports() {
           backgroundColor: '#f9fafb', 
           borderRadius: '8px',
           marginBottom: '24px',
-          border: '1px solid #e5e7eb'
+          border: '1px solid #e5e7eb',
+          opacity: !hasGSTRAccess ? 0.9 : 1,
+          pointerEvents: !hasGSTRAccess ? 'none' : 'auto',
         }}>
           <h3 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 600 }}>Filter by Period</h3>
           
           <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: !hasGSTRAccess ? 'not-allowed' : 'pointer' }}>
               <input
                 type="radio"
                 name="period"
                 value="monthly"
                 checked={periodType === "monthly"}
                 onChange={(e) => setPeriodType(e.target.value as PeriodType)}
+                disabled={!hasGSTRAccess}
               />
               <span>Current Month</span>
             </label>
             
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: !hasGSTRAccess ? 'not-allowed' : 'pointer' }}>
               <input
                 type="radio"
                 name="period"
                 value="quarterly"
                 checked={periodType === "quarterly"}
                 onChange={(e) => setPeriodType(e.target.value as PeriodType)}
+                disabled={!hasGSTRAccess}
               />
               <span>Current Quarter</span>
             </label>
             
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: !hasGSTRAccess ? 'not-allowed' : 'pointer' }}>
               <input
                 type="radio"
                 name="period"
                 value="yearly"
                 checked={periodType === "yearly"}
                 onChange={(e) => setPeriodType(e.target.value as PeriodType)}
+                disabled={!hasGSTRAccess}
               />
               <span>Current Financial Year</span>
             </label>
             
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: !hasGSTRAccess ? 'not-allowed' : 'pointer' }}>
               <input
                 type="radio"
                 name="period"
                 value="custom"
                 checked={periodType === "custom"}
                 onChange={(e) => setPeriodType(e.target.value as PeriodType)}
+                disabled={!hasGSTRAccess}
               />
               <span>Custom Range</span>
             </label>
@@ -408,7 +452,7 @@ export default function Reports() {
           <div style={{ display: 'flex', gap: '12px' }}>
             <button
               onClick={handleApplyFilters}
-              disabled={isLoading}
+              disabled={isLoading || !hasGSTRAccess}
               style={{
                 padding: '8px 16px',
                 backgroundColor: '#2563eb',
@@ -417,8 +461,8 @@ export default function Reports() {
                 borderRadius: '6px',
                 fontSize: '14px',
                 fontWeight: 500,
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-                opacity: isLoading ? 0.6 : 1
+                cursor: (isLoading || !hasGSTRAccess) ? 'not-allowed' : 'pointer',
+                opacity: (isLoading || !hasGSTRAccess) ? 0.6 : 1
               }}
             >
               {isLoading ? 'Loading...' : 'Apply Filters'}
@@ -426,6 +470,7 @@ export default function Reports() {
             
             <button
               onClick={handleReset}
+              disabled={!hasGSTRAccess}
               style={{
                 padding: '8px 16px',
                 backgroundColor: 'white',
@@ -434,7 +479,8 @@ export default function Reports() {
                 borderRadius: '6px',
                 fontSize: '14px',
                 fontWeight: 500,
-                cursor: 'pointer'
+                cursor: !hasGSTRAccess ? 'not-allowed' : 'pointer',
+                opacity: !hasGSTRAccess ? 0.9 : 1
               }}
             >
               Reset
@@ -492,52 +538,100 @@ export default function Reports() {
         )}
 
         {/* Loading State */}
-        {isLoading && (
+        {isLoading && hasGSTRAccess && (
           <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
             Loading report data...
           </div>
         )}
 
         {/* B2C Report */}
-        {!isLoading && !hasError && activeTab === "b2c" && b2cFetcher.data && (
+        {activeTab === "b2c" && (!hasGSTRAccess || (hasGSTRAccess && !isLoading && b2cFetcher.data && !hasError)) && (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
-                {b2cFetcher.data.period}
+                {hasGSTRAccess ? b2cFetcher.data?.period : currentMonthYear}
               </h3>
-              <button
-                onClick={() => exportToCSV("b2c")}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#059669',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  cursor: 'pointer'
-                }}
-              >
-                Export to CSV
-              </button>
+              {hasGSTRAccess && (
+                <button
+                  onClick={() => exportToCSV("b2c")}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#059669',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Export to CSV
+                </button>
+              )}
             </div>
             
-            <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                <thead>
-                  <tr style={{ backgroundColor: '#f9fafb' }}>
-                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Place of Supply</th>
-                    <th style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Rate (%)</th>
-                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Quantity</th>
-                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Taxable Value</th>
-                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Integrated Tax</th>
-                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Central Tax</th>
-                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>State Tax</th>
-                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Cess</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {b2cFetcher.data.data.map((row, index) => (
+            <div style={{ position: 'relative' }}>
+              {/* Blur overlay for non-subscribed users */}
+              {!hasGSTRAccess && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: 'rgba(255, 255, 255, 0.5)',
+                  backdropFilter: 'blur(1px)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 10,
+                  borderRadius: '8px',
+                  padding: '48px 24px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '64px', marginBottom: '24px' }}>🔒</div>
+                  <h2 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '12px', color: '#111827' }}>
+                    Premium Feature
+                  </h2>
+                  <p style={{ fontSize: '16px', color: '#374151', marginBottom: '32px', lineHeight: '1.6', maxWidth: '500px' }}>
+                    GSTR-1 & HSN (Ready to Submit) reports are available on Basic, Premium, and Advanced plans.
+                    Upgrade to access GST-compliant reports ready for filing.
+                  </p>
+                  <Link
+                    to="/app/pricing"
+                    style={{
+                      display: 'inline-block',
+                      padding: '12px 24px',
+                      backgroundColor: '#2563eb',
+                      color: 'white',
+                      borderRadius: '8px',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    View Pricing Plans
+                  </Link>
+                </div>
+              )}
+              
+              <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px', filter: !hasGSTRAccess ? 'blur(3px)' : 'none' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f9fafb' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Place of Supply</th>
+                      <th style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Rate (%)</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Quantity</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Taxable Value</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Integrated Tax</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Central Tax</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>State Tax</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Cess</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(hasGSTRAccess ? b2cFetcher.data?.data : mockB2CData)?.map((row, index) => (
                     <tr key={index} style={{ borderBottom: '1px solid #f3f4f6' }}>
                       <td style={{ padding: '12px' }}>
                         {row.placeOfSupply}
@@ -556,121 +650,196 @@ export default function Reports() {
                 <tfoot>
                   <tr style={{ backgroundColor: '#f9fafb', fontWeight: 600 }}>
                     <td style={{ padding: '12px' }} colSpan={2}>Total</td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{b2cFetcher.data.totals.totalQuantity || 0}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(b2cFetcher.data.totals.taxableValue || 0)}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(b2cFetcher.data.totals.integratedTax)}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(b2cFetcher.data.totals.centralTax)}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(b2cFetcher.data.totals.stateTax)}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(b2cFetcher.data.totals.cess)}</td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                      {hasGSTRAccess ? (b2cFetcher.data?.totals.totalQuantity || 0) : 442}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                      {formatCurrency(hasGSTRAccess ? (b2cFetcher.data?.totals.taxableValue || 0) : 147261.25)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                      {formatCurrency(hasGSTRAccess ? (b2cFetcher.data?.totals.integratedTax || 0) : 9287.14)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                      {formatCurrency(hasGSTRAccess ? (b2cFetcher.data?.totals.centralTax || 0) : 4130.15)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                      {formatCurrency(hasGSTRAccess ? (b2cFetcher.data?.totals.stateTax || 0) : 4130.15)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                      {formatCurrency(hasGSTRAccess ? (b2cFetcher.data?.totals.cess || 0) : 0)}
+                    </td>
                   </tr>
                 </tfoot>
               </table>
             </div>
             
-            {b2cFetcher.data.data.length === 0 && (
+            {hasGSTRAccess && b2cFetcher.data?.data.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
                 No data available for the selected period.
               </div>
             )}
+          </div>
           </>
         )}
 
         {/* HSN Report */}
-        {!isLoading && !hasError && activeTab === "hsn" && hsnFetcher.data && (
+        {activeTab === "hsn" && (!hasGSTRAccess || (hasGSTRAccess && !isLoading && hsnFetcher.data && !hasError)) && (
           <>
-            {/* HSN Setup Disclaimer */}
-            <div style={{ 
-              padding: '12px 16px', 
-              backgroundColor: '#eff6ff', 
-              border: '1px solid #bfdbfe',
-              borderRadius: '8px',
-              marginBottom: '16px',
-              fontSize: '13px',
-              color: '#1e40af'
-            }}>
-              💡 <strong>Tip:</strong> For accurate HSN codes in your reports, configure HSN/SAC codes for your products, refer{' '}
-              <Link to="/app/settings/setup-guide" style={{ color: '#2563eb', textDecoration: 'underline', fontWeight: 500 }}>
-                Settings → HSN Setup
-              </Link>
-            </div>
+            {hasGSTRAccess && (
+              <div style={{ 
+                padding: '12px 16px', 
+                backgroundColor: '#eff6ff', 
+                border: '1px solid #bfdbfe',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                fontSize: '13px',
+                color: '#1e40af'
+              }}>
+                💡 <strong>Tip:</strong> For accurate HSN codes in your reports, configure HSN/SAC codes for your products, refer{' '}
+                <Link to="/app/settings/setup-guide" style={{ color: '#2563eb', textDecoration: 'underline', fontWeight: 500 }}>
+                  Settings → HSN Setup
+                </Link>
+              </div>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
-                {hsnFetcher.data.period}
+                {hasGSTRAccess ? hsnFetcher.data?.period : currentMonthYear}
               </h3>
-              <button
-                onClick={() => exportToCSV("hsn")}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#059669',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  cursor: 'pointer'
-                }}
-              >
-                Export to CSV
-              </button>
+              {hasGSTRAccess && (
+                <button
+                  onClick={() => exportToCSV("hsn")}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#059669',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Export to CSV
+                </button>
+              )}
             </div>
             
-            <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                <thead>
-                  <tr style={{ backgroundColor: '#f9fafb' }}>
-                    <th style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Sr. No</th>
-                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>HSN</th>
-                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Description</th>
-                    <th style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>UQC</th>
-                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Quantity</th>
-                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Taxable Value</th>
-                    <th style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Rate (%)</th>
-                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>IGST</th>
-                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>CGST</th>
-                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>SGST</th>
-                    <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Cess</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {hsnFetcher.data.data.map((row) => (
-                    <tr key={row.srNo} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                      <td style={{ padding: '12px', textAlign: 'center' }}>{row.srNo}</td>
-                      <td style={{ padding: '12px', fontWeight: 500 }}>{row.hsn}</td>
-                      <td style={{ padding: '12px', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {row.description || row.hsnDescription || '-'}
-                      </td>
-                      <td style={{ padding: '12px', textAlign: 'center' }}>{row.uqc}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{row.totalQuantity}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.totalTaxableValue)}</td>
-                      <td style={{ padding: '12px', textAlign: 'center' }}>{row.rate}%</td>
-                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.integratedTax)}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.centralTax)}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.stateTax)}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.cess)}</td>
+            <div style={{ position: 'relative' }}>
+              {/* Blur overlay for non-subscribed users */}
+              {!hasGSTRAccess && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: 'rgba(255, 255, 255, 0.5)',
+                  backdropFilter: 'blur(1px)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 10,
+                  borderRadius: '8px',
+                  padding: '48px 24px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '64px', marginBottom: '24px' }}>🔒</div>
+                  <h2 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '12px', color: '#111827' }}>
+                    Premium Feature
+                  </h2>
+                  <p style={{ fontSize: '16px', color: '#374151', marginBottom: '32px', lineHeight: '1.6', maxWidth: '500px' }}>
+                    GSTR-1 & HSN (Ready to Submit) reports are available on Basic, Premium, and Advanced plans.
+                    Upgrade to access GST-compliant reports ready for filing.
+                  </p>
+                  <Link
+                    to="/app/pricing"
+                    style={{
+                      display: 'inline-block',
+                      padding: '12px 24px',
+                      backgroundColor: '#2563eb',
+                      color: 'white',
+                      borderRadius: '8px',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    View Pricing Plans
+                  </Link>
+                </div>
+              )}
+            
+              <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px', filter: !hasGSTRAccess ? 'blur(3px)' : 'none' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f9fafb' }}>
+                      <th style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Sr. No</th>
+                      <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>HSN</th>
+                      <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Description</th>
+                      <th style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>UQC</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Quantity</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Taxable Value</th>
+                      <th style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Rate (%)</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Integrated Tax</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Central Tax</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>State Tax</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>Cess</th>
                     </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr style={{ backgroundColor: '#f9fafb', fontWeight: 600 }}>
-                    <td style={{ padding: '12px' }} colSpan={4}>Total</td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{hsnFetcher.data.totals.totalQuantity || 0}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(hsnFetcher.data.totals.totalTaxableValue || 0)}</td>
-                    <td style={{ padding: '12px' }}></td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(hsnFetcher.data.totals.integratedTax)}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(hsnFetcher.data.totals.centralTax)}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(hsnFetcher.data.totals.stateTax)}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(hsnFetcher.data.totals.cess)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-            
-            {hsnFetcher.data.data.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
-                No data available for the selected period.
+                  </thead>
+                  <tbody>
+                    {(hasGSTRAccess ? hsnFetcher.data?.data : mockHSNData)?.map((row, index) => (
+                      <tr key={hasGSTRAccess ? row.srNo : index} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                        <td style={{ padding: '12px', textAlign: 'center' }}>{hasGSTRAccess ? row.srNo : (index + 1)}</td>
+                        <td style={{ padding: '12px', fontWeight: 500 }}>{row.hsn}</td>
+                        <td style={{ padding: '12px', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {row.description || row.hsnDescription || '-'}
+                        </td>
+                        <td style={{ padding: '12px', textAlign: 'center' }}>{row.uqc}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{row.totalQuantity}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.totalTaxableValue)}</td>
+                        <td style={{ padding: '12px', textAlign: 'center' }}>{row.rate}%</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.integratedTax)}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.centralTax)}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.stateTax)}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatCurrency(row.cess)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ backgroundColor: '#f9fafb', fontWeight: 600 }}>
+                      <td style={{ padding: '12px' }} colSpan={4}>Total</td>
+                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                        {hasGSTRAccess ? (hsnFetcher.data?.totals.totalQuantity || 0) : 442}
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                        {formatCurrency(hasGSTRAccess ? (hsnFetcher.data?.totals.totalTaxableValue || 0) : 147261.25)}
+                      </td>
+                      <td style={{ padding: '12px' }}></td>
+                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                        {formatCurrency(hasGSTRAccess ? (hsnFetcher.data?.totals.integratedTax || 0) : 9287.14)}
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                        {formatCurrency(hasGSTRAccess ? (hsnFetcher.data?.totals.centralTax || 0) : 4130.15)}
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                        {formatCurrency(hasGSTRAccess ? (hsnFetcher.data?.totals.stateTax || 0) : 4130.15)}
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                        {formatCurrency(hasGSTRAccess ? (hsnFetcher.data?.totals.cess || 0) : 0)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
-            )}
+              
+              {hasGSTRAccess && hsnFetcher.data?.data.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                  No data available for the selected period.
+                </div>
+              )}
+            </div>
           </>
         )}
       </s-section>

@@ -3,8 +3,9 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useLoaderData, useSearchParams } from "react-router";
+import { useLoaderData, useSearchParams, Link } from "react-router";
 import { authenticate } from "../shopify.server";
+import { getOrderLimit, getPlanTier } from "../utils/billing-helpers";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
 
@@ -15,7 +16,26 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { TABLE_NAMES } from "../constants/tables";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, billing } = await authenticate.admin(request);
+  
+  // Check current billing plan for order limits
+  const billingCheck = await billing.check({
+    plans: [
+      "Basic Monthly", "Basic Annual",
+      "Premium Monthly", "Premium Annual",
+      "Advanced Monthly", "Advanced Annual"
+    ],
+    isTest: process.env.NODE_ENV !== "production",
+  });
+  
+  let currentPlan = "Free";
+  
+  if (billingCheck.appSubscriptions.length > 0) {
+    const subscription = billingCheck.appSubscriptions[0];
+    currentPlan = subscription.name;
+  }
+  
+  const orderLimit = getOrderLimit(currentPlan);
   
   // Setup shop in background (non-blocking)
   setupShop(session.shop, session.accessToken, session.scope || "");
@@ -83,6 +103,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const activeCount = allItems.filter((o: any) => o.status !== 'Cancelled' && o.status !== 'Returned').length;
     const cancelledCount = allItems.filter((o: any) => o.status === 'Cancelled').length;
     const returnedCount = allItems.filter((o: any) => o.status === 'Returned').length;
+    
+    // Count orders this month for plan limit enforcement
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const ordersThisMonth = allItems.filter((o: any) => {
+      const orderDate = new Date(o.timestamp || o.createdAt || 0);
+      return orderDate >= startOfMonth && o.status !== 'Cancelled';
+    }).length;
 
     return { 
       orders: displayOrders, 
@@ -93,7 +121,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       cancelledCount,
       returnedCount,
       bucketName: S3_BUCKET_NAME, 
-      shop: session.shop 
+      shop: session.shop,
+      currentPlan,
+      orderLimit,
+      ordersThisMonth,
     };
   } catch (error) {
     console.error("Error loading orders:", error);
@@ -106,17 +137,22 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       cancelledCount: 0,
       returnedCount: 0,
       bucketName: S3_BUCKET_NAME, 
-      shop: session.shop, 
+      shop: session.shop,
+      currentPlan: "Free",
+      orderLimit: 50,
+      ordersThisMonth: 0,
       error: String(error) 
     };
   }
 };
 
 export default function Index() {
-  const { orders, currentPage, totalPages, totalOrders, activeCount, cancelledCount, returnedCount, bucketName, shop, error } = useLoaderData<typeof loader>();
+  const { orders, currentPage, totalPages, totalOrders, activeCount, cancelledCount, returnedCount, bucketName, shop, currentPlan, orderLimit, ordersThisMonth, error } = useLoaderData<typeof loader>();
   const [downloading, setDownloading] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
+  
+  const isOverLimit = orderLimit !== null && ordersThisMonth >= orderLimit;
 
   // Set isClient after hydration to prevent mismatch
   useEffect(() => {
@@ -228,6 +264,68 @@ export default function Index() {
           <s-banner tone="critical">
             <s-text>Error loading orders: {error}</s-text>
           </s-banner>
+        )}
+        
+        {isOverLimit && (
+          <div style={{
+            marginBottom: '16px',
+            padding: '16px',
+            backgroundColor: '#fef3c7',
+            border: '1px solid #fbbf24',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}>
+            <span style={{ fontSize: '24px' }}>⚠️</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: '600', color: '#92400e' }}>
+                Monthly Order Limit Reached
+              </div>
+              <div style={{ fontSize: '13px', color: '#78350f', marginTop: '4px' }}>
+                You've processed {ordersThisMonth} out of {orderLimit} orders this month on the {currentPlan} plan.
+                Upgrade to process more orders.
+              </div>
+            </div>
+            <Link
+              to="/app/pricing"
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#f59e0b',
+                color: 'white',
+                borderRadius: '6px',
+                fontSize: '14px',
+                fontWeight: '600',
+                textDecoration: 'none',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              Upgrade Plan
+            </Link>
+          </div>
+        )}
+        
+        {!isOverLimit && orderLimit !== null && ordersThisMonth >= orderLimit * 0.8 && (
+          <div style={{
+            marginBottom: '16px',
+            padding: '16px',
+            backgroundColor: '#fef9c3',
+            border: '1px solid #facc15',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}>
+            <span style={{ fontSize: '20px' }}>💡</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: '600', color: '#713f12' }}>
+                Approaching Order Limit
+              </div>
+              <div style={{ fontSize: '13px', color: '#854d0e', marginTop: '4px' }}>
+                {ordersThisMonth} of {orderLimit} orders used this month. Consider upgrading before reaching your limit.
+              </div>
+            </div>
+          </div>
         )}
 
         {orders.length === 0 ? (
