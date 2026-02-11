@@ -251,8 +251,12 @@ export default function Index() {
   const getStatusBadge = (status: string) => {
     const statusColors: Record<string, string> = {
       'Generated': 'success',
+      'Fulfilled': 'success',
+      'Partially Fulfilled': 'attention',
+      'On Hold': 'warning',
       'Cancelled': 'critical',
       'Returned': 'warning',
+      'Created': 'default',
     };
     return statusColors[status] || 'default';
   };
@@ -398,7 +402,35 @@ export default function Index() {
                 <tbody>
                   {orders.map((order: any) => (
                     <tr key={order.name} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                      <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#111827' }}>{order.name}</td>
+                      <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#111827' }}>
+                        {order.name}
+                        {order.exchangeType === "exchange" && order.relatedOrderId && (
+                          <span style={{ 
+                            marginLeft: '8px', 
+                            fontSize: '11px', 
+                            color: '#6366f1',
+                            backgroundColor: '#eef2ff',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontWeight: '500'
+                          }} title={`Exchange from ${order.relatedOrderId}`}>
+                            ↻ Exchange
+                          </span>
+                        )}
+                        {order.exchangeType === "original" && order.relatedOrderId && (
+                          <span style={{ 
+                            marginLeft: '8px', 
+                            fontSize: '11px', 
+                            color: '#f59e0b',
+                            backgroundColor: '#fffbeb',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontWeight: '500'
+                          }} title={`Exchanged to ${order.relatedOrderId}`}>
+                            ⤴ Exchanged
+                          </span>
+                        )}
+                      </td>
                       <td style={{ padding: '10px 16px', fontSize: '13px', color: '#374151' }}>
                         {new Date(order.timestamp || order.updatedAt || order.createdAt || order.created_at).toLocaleDateString('en-GB')}
                       </td>
@@ -444,28 +476,93 @@ export default function Index() {
                       </td>
                       <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#111827' }}>
                         {(() => {
-                          const payload = order.payload || order;
-                          const currency = payload.currency || payload.presentment_currency || '';
-                          const total = payload.total_price || payload.current_total_price || '0.00';
+                          // Prefer top-level total_price (updated for exchanges), fallback to payload
+                          const total = order.total_price || order.payload?.total_price || order.payload?.current_total_price || '0.00';
+                          const currency = order.currency || order.payload?.currency || order.payload?.presentment_currency || 'INR';
                           return `${currency} ${total}`;
                         })()}
                       </td>
                       <td style={{ padding: '10px 16px' }}>
                         <s-badge tone={(() => {
-                          const payload = order.payload || order;
-                          const status = payload.financial_status;
-                          return status === 'paid' ? 'success' : status === 'pending' ? 'attention' : 'default';
+                          // Check top-level field first (from webhook updates), then payload
+                          const status = order.financial_status || order.payload?.financial_status;
+                          return status === 'paid' ? 'success' : 
+                                 status === 'partially_paid' ? 'warning' : 
+                                 status === 'pending' ? 'warning' : 
+                                 status === 'refunded' ? 'critical' : 
+                                 'neutral';
                         })()}>
                           {(() => {
-                            const payload = order.payload || order;
-                            return payload.financial_status || 'Pending';
+                            const status = order.financial_status || order.payload?.financial_status || 'Pending';
+                            // Format for display
+                            return status === 'partially_paid' ? 'Partially Paid' :
+                                   status === 'paid' ? 'Paid' :
+                                   status === 'pending' ? 'Pending' :
+                                   status === 'refunded' ? 'Refunded' :
+                                   status.charAt(0).toUpperCase() + status.slice(1);
                           })()}
                         </s-badge>
                       </td>
                       <td style={{ padding: '10px 16px' }}>
-                        <s-badge tone={getStatusBadge(order.status)}>
-                          {order.status || 'Created'}
-                        </s-badge>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <s-badge tone={getStatusBadge(order.status)}>
+                            {(() => {
+                              // Map fulfillment_status to display status
+                              const fulfillmentStatus = order.fulfillment_status;
+                              if (fulfillmentStatus === 'fulfilled') return 'Fulfilled';
+                              if (fulfillmentStatus === 'partial') return 'Partially Fulfilled';
+                              if (fulfillmentStatus === 'on_hold') return 'On Hold';
+                              if (fulfillmentStatus === 'unfulfilled') return 'Unfulfilled';
+                              // Fallback to order.status
+                              return order.status || 'Created';
+                            })()}
+                          </s-badge>
+                          {(order.exchangeType === "original" || order.returnType === "return") && (
+                            <span style={{ 
+                              fontSize: '11px', 
+                              color: (() => {
+                                // Check if returns are still in progress by looking at closed_at field
+                                const payload = order.payload || order;
+                                const returns = payload.returns || [];
+                                const hasOpenReturns = returns.some((r: any) => r.closed_at === null || !r.closed_at);
+                                const isExchange = order.exchangeType === "original";
+                                // Show blue (in process) if returns are not closed yet
+                                // Show orange/red based on type when completed
+                                if (hasOpenReturns) return '#6366f1'; // Blue for in-process
+                                return isExchange ? '#f59e0b' : '#ef4444'; // Orange for exchange, red for return
+                              })(),
+                              backgroundColor: (() => {
+                                const payload = order.payload || order;
+                                const returns = payload.returns || [];
+                                const hasOpenReturns = returns.some((r: any) => r.closed_at === null || !r.closed_at);
+                                if (hasOpenReturns) return '#eef2ff'; // Blue bg
+                                return order.exchangeType === "original" ? '#fffbeb' : '#fee2e2'; // Orange/red bg
+                              })(),
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontWeight: '500',
+                              whiteSpace: 'nowrap'
+                            }} title={(() => {
+                              const payload = order.payload || order;
+                              const returns = payload.returns || [];
+                              const hasOpenReturns = returns.some((r: any) => r.closed_at === null || !r.closed_at);
+                              const isExchange = order.exchangeType === "original";
+                              const type = isExchange ? "exchange" : "return";
+                              return `${hasOpenReturns ? `${type === 'exchange' ? 'Exchange' : 'Return'} in process` : `${type === 'exchange' ? 'Exchange completed' : 'Returned'}`}${order.relatedOrderId ? `: ${order.relatedOrderId}` : ''}`;
+                            })()}>
+                              {(() => {
+                                const payload = order.payload || order;
+                                const returns = payload.returns || [];
+                                const hasOpenReturns = returns.some((r: any) => r.closed_at === null || !r.closed_at);
+                                const isExchange = order.exchangeType === "original";
+                                if (hasOpenReturns) {
+                                  return isExchange ? '⏳ Exchange in process' : '⏳ Return in process';
+                                }
+                                return isExchange ? '↻ Exchanged' : '↩ Returned';
+                              })()}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ padding: '10px 16px' }}>
                         {order.s3Key && (

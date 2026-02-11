@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs } from "react-router";
 import dynamodb from "../db.server";
-import { QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { createHmac, timingSafeEqual } from "crypto";
 import { TABLE_NAMES } from "../constants/tables";
 import { updateGSTReportingStatus, createReturnEntries } from "../services/gstReporting.server";
@@ -50,6 +50,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`Webhook authenticated - Topic: ${topic}, Shop: ${shop}`);
     console.log(`Refund ID: ${payload.id}, Order ID: ${payload.order_id}`);
+    
+    // 🔍 DEBUG: Print complete refund payload
+    console.log(`[REFUND WEBHOOK] ========== FULL PAYLOAD START ==========`);
+    console.log(JSON.stringify(payload, null, 2));
+    console.log(`[REFUND WEBHOOK] ========== FULL PAYLOAD END ==========`);
+    
+    // 🔍 DEBUG: Print refund line items details
+    if (payload.refund_line_items && payload.refund_line_items.length > 0) {
+      console.log(`[REFUND WEBHOOK] Refund Line Items:`);
+      payload.refund_line_items.forEach((item: any, idx: number) => {
+        console.log(`  Item ${idx + 1}:`, JSON.stringify({
+          id: item.id,
+          line_item_id: item.line_item_id,
+          quantity: item.quantity,
+          restocking_type: item.restocking_type,
+          location_id: item.location_id,
+          restock_type: item.restock_type
+        }, null, 2));
+      });
+    }
 
     const orderId = payload.order_id?.toString();
     const orderName = payload.order?.name; // Shopify order name like "#1001"
@@ -67,10 +87,38 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const isFullRefund = refundLineItems.length > 0 && 
                          refundLineItems.every((item: any) => item.quantity === item.line_item?.quantity);
 
+    // Check if this is an exchange
+    const isExchange = refundLineItems.some((item: any) => item.restocking_type === "exchange");
+    console.log(`Refund type: ${isExchange ? 'Exchange' : 'Regular refund'}, Full refund: ${isFullRefund}`);
+
+    // Update original order to mark as exchanged
+    if (isExchange) {
+      try {
+        await dynamodb.send(
+          new UpdateCommand({
+            TableName: TABLE_NAMES.ORDERS,
+            Key: { name: orderName },
+            UpdateExpression: "SET exchangeType = :type, #status = :status, updatedAt = :ts",
+            ExpressionAttributeNames: {
+              "#status": "status"
+            },
+            ExpressionAttributeValues: {
+              ":type": "original",
+              ":status": "Exchanged",
+              ":ts": new Date().toISOString()
+            }
+          })
+        );
+        console.log(`Marked order ${orderName} as exchanged (original)`);
+      } catch (updateError) {
+        console.error(`Error marking order as exchanged:`, updateError);
+      }
+    }
+
     try {
       if (isFullRefund) {
         // Full return - update all line items status
-        console.log(`Processing full refund for order ${orderName}`);
+        console.log(`Processing full ${isExchange ? 'exchange' : 'refund'} for order ${orderName}`);
         
         await updateGSTReportingStatus(
           shop,
@@ -79,7 +127,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           {
             creditNoteId,
             creditNoteDate,
-            cancellationReason: "full_return"
+            cancellationReason: isExchange ? "exchange" : "full_return"
           }
         );
         
@@ -113,10 +161,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response(
       JSON.stringify({
         success: true,
-        message: "Refund processed successfully",
+        message: `${isExchange ? 'Exchange' : 'Refund'} processed successfully`,
         orderName,
         creditNoteId,
-        type: isFullRefund ? "full_refund" : "partial_refund"
+        type: isExchange ? "exchange" : (isFullRefund ? "full_refund" : "partial_refund"),
+        isExchange
       }),
       {
         status: 200,

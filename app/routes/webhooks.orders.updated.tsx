@@ -35,8 +35,41 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     console.log(`Webhook authenticated - Topic: ${topic}, Shop: ${shop}`);
     console.log(`Order: ${orderName}, Payment Status: ${paymentStatus}`);
     
-    // Log complete webhook payload for debugging
-    // console.log(`[orders/updated Payload] COMPLETE PAYLOAD:`, JSON.stringify(payload, null, 2));
+    // ── Exchange Detection: Check for returns array ──────────────────────
+    const hasReturns = payload.returns && Array.isArray(payload.returns) && payload.returns.length > 0;
+    
+    // Determine if this is an EXCHANGE or just a RETURN
+    // Exchange = returns exist AND new items were added (line_items count increased or new unfulfilled items)
+    // Pure Return = returns exist but no new items added
+    let isExchange = false;
+    if (hasReturns) {
+      // Check if there are any line items that are NOT in the returns (meaning they're new exchange items)
+      const returnedLineItemIds = new Set();
+      payload.returns?.forEach((returnObj: any) => {
+        returnObj.return_line_items?.forEach((rli: any) => {
+          if (rli.line_item_id) {
+            returnedLineItemIds.add(rli.line_item_id);
+          }
+        });
+      });
+      
+      // If there are line items not in returns list, it's an exchange
+      const hasNonReturnedItems = payload.line_items?.some((li: any) => !returnedLineItemIds.has(li.id));
+      isExchange = hasNonReturnedItems;
+      
+      console.log(`[RETURNS DETECTED] Order ${orderName}:`);
+      console.log(`  - Returns array exists: ${payload.returns.length} return(s)`);
+      console.log(`  - Returned line item IDs:`, Array.from(returnedLineItemIds));
+      console.log(`  - Total line items: ${payload.line_items?.length || 0}`);
+      console.log(`  - Has non-returned items: ${hasNonReturnedItems}`);
+      console.log(`  - Classification: ${isExchange ? 'EXCHANGE' : 'PURE RETURN'}`);
+      console.log(`  Returns:`, JSON.stringify(payload.returns.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        closed_at: r.closed_at,
+        return_line_items: r.return_line_items?.length || 0
+      })), null, 2));
+    }
     
     // Log key status fields
     console.log(`[orders/updated Payload] Key fields:`, JSON.stringify({
@@ -75,13 +108,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     let newStatus: string | null = null;
     let s3Action: string | null = null; // "returned" folder move if needed
 
-    if (paymentStatus === "refunded") {
+    // Map fulfillment status (don't override with "Exchanged" - track that separately)
+    // Move to "returned" folder for pure returns (but not for exchanges)
+    if (paymentStatus === "refunded" && !isExchange) {
       newStatus = "Returned";
-      s3Action = "returned";
+      s3Action = "returned"; // Will move to returned folder and update s3Key in DB
     } else if (fulfillmentStatus === "fulfilled") {
       newStatus = "Fulfilled";
     } else if (fulfillmentStatus === "partial") {
       newStatus = "Partially Fulfilled";
+    } else if (fulfillmentStatus === "on_hold") {
+      newStatus = "On Hold";
     }
 
     // Extract fulfillment details (tracking, location, etc.)
@@ -143,6 +180,22 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         expressionParts.push("locationId = :locationId");
         expressionValues[":locationId"] = payload.location_id.toString();
       }
+      
+      // If exchange detected (returns array present AND new items added), mark as original exchange order
+      // For pure returns (no new items), mark as "return" type instead
+      if (hasReturns) {
+        if (isExchange) {
+          expressionParts.push("exchangeType = :exchangeType");
+          expressionValues[":exchangeType"] = "original";
+          console.log(`[EXCHANGE] Setting exchangeType="original" for order ${orderName}`);
+        } else {
+          expressionParts.push("returnType = :returnType");
+          expressionValues[":returnType"] = "return";
+          console.log(`[RETURN] Setting returnType="return" for order ${orderName} (pure return, no exchange)`);
+        }
+        expressionParts.push("payload = :payload"); // Update payload to include returns array
+        expressionValues[":payload"] = payload; // Store updated payload with returns
+      }
 
       const updateResult = await dynamodb.send(new UpdateCommand({
         TableName: TABLE_NAME,
@@ -157,7 +210,113 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         ...fulfillmentData,
         financial_status: paymentStatus,
         fulfillment_status: fulfillmentStatus,
+        ...(hasReturns && { exchangeType: "original" }),
       }));
+    }
+
+    // ── Regenerate invoice ONLY for exchanges (not pure returns) ──────────
+    // Only regenerate when the order is an EXCHANGE and fulfilled/partially fulfilled
+    if (isExchange && hasReturns && (fulfillmentStatus === "fulfilled" || fulfillmentStatus === "partial" || fulfillmentStatus === "partially_fulfilled")) {
+      console.log(`[EXCHANGE] Order ${orderName} is an exchange and is ${fulfillmentStatus}, regenerating invoice with exchange items`);
+      console.log(`[EXCHANGE] Line items at regeneration:`, JSON.stringify(payload.line_items?.map((li: any) => ({
+        id: li.id,
+        title: li.title,
+        variant_title: li.variant_title,
+        quantity: li.quantity,
+        fulfillment_status: li.fulfillment_status
+      })), null, 2));
+      
+      // Get list of returned line item IDs from returns array
+      const returnedLineItemIds = new Set();
+      payload.returns?.forEach((returnObj: any) => {
+        returnObj.return_line_items?.forEach((rli: any) => {
+          if (rli.line_item_id) {
+            returnedLineItemIds.add(rli.line_item_id);
+          }
+        });
+      });
+      
+      console.log(`[EXCHANGE] Returned line item IDs:`, Array.from(returnedLineItemIds));
+      
+      // Filter line items to exclude the returned/exchanged items
+      const exchangedLineItems = payload.line_items?.filter((li: any) => 
+        !returnedLineItemIds.has(li.id)
+      ) || [];
+      
+      console.log(`[EXCHANGE] Filtered to ${exchangedLineItems.length} exchange items (excluding returned):`, 
+        JSON.stringify(exchangedLineItems.map((li: any) => ({
+          id: li.id,
+          title: li.title,
+          quantity: li.quantity,
+        })), null, 2));
+      
+      if (exchangedLineItems.length === 0) {
+        console.log(`[EXCHANGE] No exchange items found (all returned), skipping invoice regeneration`);
+      } else {
+        // Create modified payload with only exchange line items (not returned items)
+        const modifiedPayload = {
+          ...payload,
+          line_items: exchangedLineItems,
+          // Recalculate totals based on exchange items only
+          current_subtotal_price: exchangedLineItems.reduce((sum: number, li: any) => 
+            sum + parseFloat(li.price || '0') * (li.quantity || 0), 0).toFixed(2),
+          current_total_price: exchangedLineItems.reduce((sum: number, li: any) => 
+            sum + parseFloat(li.price || '0') * (li.quantity || 0), 0).toFixed(2),
+        };
+        
+        try {
+          const shopConfig = await fetchShopConfig(shop);
+        const { companyState, companyGSTIN } = shopConfig;
+        
+        // Resolve fulfillment location state
+        let fulfillmentState = companyState;
+        const locationIdToResolve = fulfillmentData.fulfillmentLocationId || (payload.location_id ? payload.location_id.toString() : null);
+        if (locationIdToResolve) {
+          try {
+            fulfillmentState = await resolveLocationState(shop, locationIdToResolve, companyState);
+          } catch (locError) {
+            console.log(`[Exchange Invoice] Using company state due to location error:`, locError);
+          }
+        }
+
+        // Generate new invoice with updated order details (only fulfilled items)
+        const invoiceResult = await generateInvoicePipeline({
+          shop,
+          payload: modifiedPayload,
+          orderName: payload.name,
+          fulfillmentState,
+          companyGSTIN,
+          source: "webhook-orders-updated-fulfillment", // Regenerating for exchange
+          taxCalculationMethod: shopConfig.taxCalculationMethod,
+        });
+        
+        console.log(`[EXCHANGE] Invoice regenerated successfully: ${invoiceResult.invoiceId}`);
+        
+        // Update order with exchange amounts and modified payload
+        const exchangeTotal = modifiedPayload.current_total_price;
+        console.log(`[EXCHANGE] Updating order totals - Exchange total: ${exchangeTotal}`);
+        console.log(`[EXCHANGE] Original payload total: ${payload.total_price}, New total: ${exchangeTotal}`);
+        
+        try {
+          await dynamodb.send(new UpdateCommand({
+            TableName: TABLE_NAME,
+            Key: { name: orderName },
+            UpdateExpression: "SET total_price = :total, payload = :payload, updatedAt = :ts",
+            ExpressionAttributeValues: {
+              ":total": exchangeTotal,
+              ":payload": modifiedPayload, // Store modified payload with only exchange items
+              ":ts": now,
+            },
+          }));
+          console.log(`[EXCHANGE] Updated total_price and payload in DB for ${orderName}: ${exchangeTotal} (exchange items only)`);
+        } catch (updateError) {
+          console.error(`[EXCHANGE] Failed to update total_price in DB:`, updateError);
+        }
+        } catch (invoiceError) {
+          console.error(`[EXCHANGE] Failed to regenerate invoice:`, invoiceError);
+          // Don't fail the webhook if invoice generation fails
+        }
+      }
     }
 
     // Update ShopifyOrderItems with fulfillment info
@@ -269,6 +428,25 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     let movedFiles: string[] = [];
     if (s3Action) {
       movedFiles = await moveInvoiceToFolder(orderName, shop, s3Action);
+      
+      // Update s3Key in database with new location after moving
+      if (movedFiles.length > 0) {
+        const newS3Key = movedFiles[0]; // Primary invoice file
+        try {
+          await dynamodb.send(new UpdateCommand({
+            TableName: TABLE_NAME,
+            Key: { name: orderName },
+            UpdateExpression: "SET s3Key = :s3Key, updatedAt = :ts",
+            ExpressionAttributeValues: {
+              ":s3Key": newS3Key,
+              ":ts": now,
+            },
+          }));
+          console.log(`[S3 MOVE] Updated s3Key in DB for ${orderName}: ${newS3Key}`);
+        } catch (updateError) {
+          console.error(`[S3 MOVE] Failed to update s3Key in DB:`, updateError);
+        }
+      }
     }
 
     return jsonResponse({

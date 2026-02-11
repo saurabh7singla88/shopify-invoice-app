@@ -101,8 +101,31 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     // Only store order and invoke Lambda if invoice doesn't exist yet
     if (!invoiceExists) {
+      // Check if this is an exchange order
+      // Shopify creates exchange orders as draft orders with source_name="shopify_draft_order"
+      // The original order will have a "returns" array (detected in orders/updated webhook)
+      const isExchangeOrder = payload.source_name === "shopify_draft_order" || 
+                             payload.source_name === "exchange" ||
+                             payload.note?.toLowerCase().includes("exchange") ||
+                             (payload.note_attributes && payload.note_attributes.some((attr: any) => 
+                               attr.name === "exchange_for_order_id" || attr.name === "original_order_id"
+                             ));
+      
+      let exchangeForOrderId: string | null = null;
+      if (isExchangeOrder && payload.note_attributes) {
+        const exchangeAttr = payload.note_attributes.find((attr: any) => 
+          attr.name === "exchange_for_order_id" || attr.name === "original_order_id"
+        );
+        if (exchangeAttr) {
+          exchangeForOrderId = exchangeAttr.value;
+        }
+      }
+      
+      console.log(`Order type: ${isExchangeOrder ? 'Exchange order' : 'Regular order'}${exchangeForOrderId ? ` for ${exchangeForOrderId}` : ''}`);
+      console.log(`[Exchange Detection] isExchangeOrder: ${isExchangeOrder}, source_name: ${payload.source_name}`);
+      
       // Prepare item for DynamoDB (following lambda-shopify-orderCreated.mjs logic)
-      const item = {
+      const item: any = {
         eventId,
         name: payload.name, // Extract order name as partition key
         timestamp,
@@ -119,6 +142,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         updatedAt: timestamp,
         ttl: Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60, // 90 days expiration
       };
+      
+      // Add exchange metadata if this is an exchange order
+      if (isExchangeOrder) {
+        item.exchangeType = "exchange";
+        if (exchangeForOrderId) {
+          item.relatedOrderId = exchangeForOrderId;
+        }
+      }
 
       // Store in DynamoDB
       await dynamodb.send(
@@ -129,6 +160,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       );
 
       console.log(`Order stored successfully: ${eventId}`);
+      
+      // If this is an exchange order and we have the original order ID, link them
+      if (isExchangeOrder && exchangeForOrderId) {
+        try {
+          await dynamodb.send(
+            new UpdateCommand({
+              TableName: TABLE_NAME,
+              Key: { name: exchangeForOrderId },
+              UpdateExpression: "SET relatedOrderId = :newOrderId, updatedAt = :ts",
+              ExpressionAttributeValues: {
+                ":newOrderId": payload.name,
+                ":ts": timestamp
+              }
+            })
+          );
+          console.log(`Linked original order ${exchangeForOrderId} to exchange order ${payload.name}`);
+        } catch (linkError) {
+          console.error(`Error linking orders:`, linkError);
+        }
+      }
     }
 
     // ── Fetch shop config ────────────────────────────────────────────────
@@ -136,8 +187,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const { companyState, companyGSTIN, multiWarehouseGST } = shopConfig;
     console.log(`[Shop Config] companyState: ${companyState}, companyGSTIN: ${companyGSTIN}, multiWarehouseGST: ${multiWarehouseGST}`);
 
-    // ── Multi-warehouse: defer to fulfillment ────────────────────────────
-    if (multiWarehouseGST) {
+    // Check if this is an exchange order (need to check again outside if block)
+    const isExchangeOrder = payload.source_name === "shopify_draft_order" || 
+                           payload.source_name === "exchange" ||
+                           payload.note?.toLowerCase().includes("exchange");
+    console.log(`[Invoice Generation Check] Order ${payload.name}:`);
+    console.log(`  - isExchangeOrder: ${isExchangeOrder}`);
+    console.log(`  - source_name: ${payload.source_name}`);
+    console.log(`  - multiWarehouseGST: ${multiWarehouseGST}`);
+    console.log(`  - invoiceExists: ${invoiceExists}`);
+
+    // ── Multi-warehouse: defer to fulfillment (except for exchange orders) ────
+    if (multiWarehouseGST && !isExchangeOrder) {
       console.log(`[Multi-Warehouse] Enabled — skipping invoice & GST at order creation. Will generate on fulfillment.`);
       
       if (!invoiceExists) {
@@ -159,6 +220,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
       }
 
+      console.log(`[Multi-Warehouse] Deferring invoice to fulfillment for ${payload.name}`);
       return jsonResponse({
         success: true,
         message: "Order stored — invoice deferred to fulfillment (multi-warehouse GST)",
@@ -181,6 +243,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     let invoiceResult;
     try {
       console.log("[OrdersCreate] About to call generateInvoicePipeline");
+      console.log("[OrdersCreate] Order:", payload.name, "isExchangeOrder:", isExchangeOrder);
       console.log("[OrdersCreate] shopConfig:", JSON.stringify(shopConfig, null, 2));
       console.log("[OrdersCreate] taxCalculationMethod from shopConfig:", shopConfig.taxCalculationMethod);
       
