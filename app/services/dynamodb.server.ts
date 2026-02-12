@@ -345,3 +345,71 @@ export async function getShopAccessToken(shop: string): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Get company details from Shops table configuration column
+ */
+export async function getShopCompanyDetails(shop: string): Promise<any | null> {
+  try {
+    const result = await dynamodb.send(new GetCommand({
+      TableName: SHOPS_TABLE,
+      Key: { shop },
+    }));
+    
+    if (!result.Item?.configurations) {
+      return null;
+    }
+    
+    const configurations = typeof result.Item.configurations === 'string' 
+      ? JSON.parse(result.Item.configurations)
+      : result.Item.configurations;
+    
+    return configurations.companyDetails || null;
+  } catch (error) {
+    console.error(`[Shop] Error fetching company details for ${shop}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Save company details to Shops table configuration column
+ */
+export async function saveShopCompanyDetails(shop: string, companyDetails: any) {
+  try {
+    // First, get existing configurations to preserve other settings
+    const result = await dynamodb.send(new GetCommand({
+      TableName: SHOPS_TABLE,
+      Key: { shop },
+    }));
+    
+    let configurations = {};
+    if (result.Item?.configurations) {
+      configurations = typeof result.Item.configurations === 'string' 
+        ? JSON.parse(result.Item.configurations)
+        : result.Item.configurations;
+    }
+    
+    // Update companyDetails in configurations
+    configurations = {
+      ...configurations,
+      companyDetails,
+    };
+    
+    // Save back to DynamoDB
+    await dynamodb.send(new UpdateCommand({
+      TableName: SHOPS_TABLE,
+      Key: { shop },
+      UpdateExpression: "SET configurations = :configs, updatedAt = :now",
+      ExpressionAttributeValues: {
+        ":configs": configurations,
+        ":now": Date.now(),
+      },
+    }));
+    
+    console.log(`Company details saved for shop ${shop}`);
+    return { success: true };
+  } catch (error) {
+    console.error(`Error saving company details for ${shop}:`, error);
+    throw error;
+  }
+}

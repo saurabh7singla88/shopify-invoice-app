@@ -16,7 +16,7 @@ import {
   transformOrderToInvoice,
   type ShopifyOrderPayload,
 } from "./invoiceTransformer.server";
-import { getTemplateConfiguration, getLocationState, getShopAccessToken } from "./dynamodb.server";
+import { getTemplateConfiguration, getLocationState, getShopAccessToken, getShopCompanyDetails } from "./dynamodb.server";
 import { enrichLineItemsWithHSN } from "./productMetafields.server";
 
 // ─── Shared clients ──────────────────────────────────────────────────────────
@@ -134,10 +134,12 @@ export function extractCustomerName(payload: any): string {
 /**
  * Fetches shop template ID and full template configuration (company info, styling).
  * Returns companyState, companyGSTIN, and multiWarehouseGST flag.
+ * Company details are ONLY fetched from Shops.configurations.companyDetails
  */
 export async function fetchShopConfig(shop: string): Promise<ShopConfig> {
   let shopTemplateId = "minimalist";
   let configurations: any = {};
+  let companyDetails: any = null;
   
   try {
     const shopResult = await dynamodb.send(new GetCommand({
@@ -148,16 +150,19 @@ export async function fetchShopConfig(shop: string): Promise<ShopConfig> {
       shopTemplateId = shopResult.Item.templateId;
     }
     
-    // Get configurations JSON
+    // Get configurations JSON (includes companyDetails and other settings)
     if (shopResult.Item?.configurations) {
       configurations = typeof shopResult.Item.configurations === 'string' 
         ? JSON.parse(shopResult.Item.configurations)
         : shopResult.Item.configurations;
+      
+      companyDetails = configurations.companyDetails || null;
     }
   } catch (shopError) {
     console.error("Error fetching shop record:", shopError);
   }
 
+  // Get template configuration (styling only)
   let templateConfig: any = null;
   try {
     templateConfig = await getTemplateConfiguration(shop, shopTemplateId);
@@ -165,12 +170,18 @@ export async function fetchShopConfig(shop: string): Promise<ShopConfig> {
     console.error("Could not fetch template config:", configError);
   }
 
+  // Merge company details from Shops table with template config
+  const mergedConfig = {
+    ...templateConfig,
+    company: companyDetails || {},
+  };
+
   return {
     templateId: shopTemplateId,
-    templateConfig,
-    companyState: templateConfig?.company?.state || "Unknown",
-    companyGSTIN: templateConfig?.company?.gstin,
-    multiWarehouseGST: (templateConfig?.company?.multiWarehouseGST === true) || false,
+    templateConfig: mergedConfig,
+    companyState: companyDetails?.state || "Unknown",
+    companyGSTIN: companyDetails?.gstin,
+    multiWarehouseGST: (companyDetails?.multiWarehouseGST === true) || false,
     taxCalculationMethod: configurations.taxCalculationMethod || "shopify", // Default to Shopify tax
   };
 }

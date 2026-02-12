@@ -17,11 +17,13 @@ export default function Settings() {
   useEffect(() => {
     if (location.pathname.includes("setup-guide")) setActiveSection("setup-guide");
     else if (location.pathname.includes("tax-config")) setActiveSection("tax-config");
+    else if (location.pathname.includes("company-details")) setActiveSection("company-details");
   }, [location.pathname]);
 
   const sections = [
     { id: "setup-guide", label: "Setup Guide", icon: "📋", path: "/app/settings/setup-guide" },
     { id: "tax-config", label: "Tax Configuration", icon: "🧮", path: "/app/settings/tax-config" },
+    { id: "company-details", label: "Company Details", icon: "🏢", path: "/app/settings/company-details" },
   ];
 
   return (

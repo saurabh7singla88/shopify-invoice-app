@@ -3,8 +3,6 @@ import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { useLoaderData, useSearchParams, Form, useNavigation, useNavigate, useActionData } from "react-router";
 import { authenticate } from "../shopify.server";
 import { saveTemplateConfiguration, getTemplateConfiguration } from "../services/dynamodb.server";
-import { uploadImageToS3 } from "../services/s3.server";
-import { INDIAN_STATES } from "../constants/indianStates";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -35,23 +33,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       bodyFontSize: { label: "Body Font Size", type: "number", default: existingConfig?.styling?.bodyFontSize || 11, min: 8, max: 16, envVar: "INVOICE_BODY_FONT_SIZE" },
       itemTableFontSize: { label: "Item Table Font Size", type: "number", default: existingConfig?.styling?.itemTableFontSize || 8, min: 6, max: 12, envVar: "INVOICE_TABLE_FONT_SIZE" },
     },
-    // Company Configuration
-    company: {
-      companyName: { label: "Company Name", type: "text", default: existingConfig?.company?.companyName || "", envVar: "COMPANY_NAME" },
-      legalName: { label: "Legal Name", type: "text", default: existingConfig?.company?.legalName || "", envVar: "COMPANY_LEGAL_NAME" },
-      addressLine1: { label: "Address Line 1", type: "text", default: existingConfig?.company?.addressLine1 || "", envVar: "COMPANY_ADDRESS_LINE1" },
-      addressLine2: { label: "Address Line 2", type: "text", default: existingConfig?.company?.addressLine2 || "", envVar: "COMPANY_ADDRESS_LINE2" },
-      city: { label: "City", type: "text", default: existingConfig?.company?.city || "", envVar: "COMPANY_CITY" },
-      state: { label: "State", type: "select", default: existingConfig?.company?.state || "", options: INDIAN_STATES, envVar: "COMPANY_STATE" },
-      pincode: { label: "Pincode", type: "text", default: existingConfig?.company?.pincode || "", envVar: "COMPANY_PINCODE" },
-      gstin: { label: "GSTIN", type: "text", default: existingConfig?.company?.gstin || "", envVar: "COMPANY_GSTIN" },
-      supportEmail: { label: "Support Email", type: "email", default: existingConfig?.company?.supportEmail || "", envVar: "COMPANY_SUPPORT_EMAIL" },
-      phone: { label: "Phone", type: "text", default: existingConfig?.company?.phone || "", envVar: "COMPANY_PHONE" },
-      logoFilename: { label: "Logo Filename", type: "file", default: existingConfig?.company?.logoFilename || "logo.JPG", envVar: "COMPANY_LOGO_FILENAME" },
-      signatureFilename: { label: "Signature Filename", type: "file", default: existingConfig?.company?.signatureFilename || "", envVar: "COMPANY_SIGNATURE_FILENAME" },
-      includeSignature: { label: "Include Signature in Invoice", type: "checkbox", default: existingConfig?.company?.includeSignature !== undefined ? existingConfig?.company?.includeSignature : true, envVar: "INCLUDE_SIGNATURE" },
-      multiWarehouseGST: { label: "Multi-Warehouse GST", type: "checkbox", default: existingConfig?.company?.multiWarehouseGST || false, envVar: "MULTI_WAREHOUSE_GST", description: "Enable if you fulfill orders from multiple warehouse locations in different states. When enabled, the GST invoice will be generated at the time of fulfillment (instead of order creation) so that the correct warehouse state is used for intra-state vs inter-state tax calculation (CGST+SGST vs IGST)." },
-    }
   };
   
   return { shop, templateId, configuration };
@@ -78,38 +59,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return strValue.trim() === "" ? fallback : strValue;
   };
   
-  // Handle file uploads
-  let logoS3Key = existingConfig.company?.logoFilename || "logo.JPG";
-  let signatureS3Key = existingConfig.company?.signatureFilename || "";
-  
-  // Check if signature should be included
-  const includeSignature = formData.get("company.includeSignature") === "on";
-  
-  try {
-    const logoFile = formData.get("logoFile") as File | null;
-    if (logoFile && logoFile.size > 0) {
-      const logoBuffer = Buffer.from(await logoFile.arrayBuffer());
-      logoS3Key = await uploadImageToS3(logoBuffer, logoFile.name, shop);
-      console.log(`Logo uploaded: ${logoS3Key}`);
-    }
-    
-    // Only upload signature if includeSignature is checked
-    if (includeSignature) {
-      const signatureFile = formData.get("signatureFile") as File | null;
-      if (signatureFile && signatureFile.size > 0) {
-        const signatureBuffer = Buffer.from(await signatureFile.arrayBuffer());
-        signatureS3Key = await uploadImageToS3(signatureBuffer, signatureFile.name, shop);
-        console.log(`Signature uploaded: ${signatureS3Key}`);
-      }
-    } else {
-      // If signature is disabled, set to null
-      signatureS3Key = null;
-    }
-  } catch (uploadError) {
-    console.error("Error uploading files:", uploadError);
-    return { success: false, error: "Failed to upload images" };
-  }
-  
   // Parse form data into configuration structure - only update fields that are present
   const styling = {
     primaryColor: getFormValue("styling.primaryColor", existingConfig.styling?.primaryColor || "#333333"),
@@ -122,27 +71,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     itemTableFontSize: formData.get("styling.itemTableFontSize") ? parseInt(formData.get("styling.itemTableFontSize") as string) : (existingConfig.styling?.itemTableFontSize || 8),
   };
   
-  const company = {
-    companyName: getFormValue("company.companyName", existingConfig.company?.companyName || ""),
-    legalName: getFormValue("company.legalName", existingConfig.company?.legalName || ""),
-    addressLine1: getFormValue("company.addressLine1", existingConfig.company?.addressLine1 || ""),
-    addressLine2: getFormValue("company.addressLine2", existingConfig.company?.addressLine2 || ""),
-    city: getFormValue("company.city", existingConfig.company?.city || ""),
-    state: getFormValue("company.state", existingConfig.company?.state || ""),
-    pincode: getFormValue("company.pincode", existingConfig.company?.pincode || ""),
-    gstin: getFormValue("company.gstin", existingConfig.company?.gstin || ""),
-    supportEmail: getFormValue("company.supportEmail", existingConfig.company?.supportEmail || ""),
-    phone: getFormValue("company.phone", existingConfig.company?.phone || ""),
-    logoFilename: logoS3Key,
-    includeSignature: includeSignature,
-    signatureFilename: signatureS3Key,
-    multiWarehouseGST: formData.get("company.multiWarehouseGST") === "on",
-  };
+  // Keep existing company details unchanged (now stored in Shops table)
+  const company = existingConfig.company || {};
   
   try {
     await saveTemplateConfiguration(shop, templateId, { styling, company });
     console.log(`✅ Configuration saved for shop: ${shop}, template: ${templateId}`);
-    return { success: true, message: "Configuration saved successfully" };
+    return { success: true, message: "Template styling saved successfully" };
   } catch (error) {
     console.error("Error saving configuration:", error);
     return { success: false, error: "Failed to save configuration" };
@@ -169,7 +104,6 @@ export default function CustomizeTemplate() {
   
   const sections = [
     { id: "styling", label: "Fonts and Colors", icon: "🎨" },
-    { id: "company", label: "Company Configuration", icon: "🏢" },
   ];
 
   const isSubmitting = navigation.state === "submitting";
@@ -491,69 +425,30 @@ export default function CustomizeTemplate() {
             <input type="hidden" name="templateId" value={templateId} />
             <input type="hidden" name="section" value={activeSection} />
             
-            {activeSection === "styling" && (
-              <div>
-                <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Fonts and Colors</h3>
-                <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '24px' }}>
-                  Customize the visual appearance of your invoices
-                </p>
-                
-                {Object.entries(configuration.styling).map(([key, config]: [string, any]) => (
-                  <div key={key} style={{ marginBottom: '20px' }}>
-                    <label style={{ 
-                      display: 'block', 
-                      fontSize: '13px', 
-                      fontWeight: '500', 
-                      marginBottom: '6px',
-                      color: '#374151'
-                    }}>
-                      {config.label}
-                    </label>
-                    {renderFormField(key, config, "styling")}
-                    <p style={{ fontSize: '10px', color: '#9ca3af', marginTop: '4px' }}>
-                      Environment variable: <code style={{ backgroundColor: '#f3f4f6', padding: '1px 4px', borderRadius: '3px', fontSize: '10px' }}>{config.envVar}</code>
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            {activeSection === "company" && (
-              <div>
-                <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Company Configuration</h3>
-                <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '24px' }}>
-                  Configure your company details that appear on invoices
-                </p>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                  {Object.entries(configuration.company).map(([key, config]: [string, any]) => {
-                    // Determine grid column span
-                    let gridColumn = 'span 1';
-                    if (['addressLine1', 'addressLine2'].includes(key)) {
-                      gridColumn = 'span 2';
-                    }
-                    
-                    return (
-                      <div key={key} style={{ gridColumn }}>
-                        <label style={{ 
-                          display: 'block', 
-                          fontSize: '13px', 
-                          fontWeight: '500', 
-                          marginBottom: '6px',
-                          color: '#374151'
-                        }}>
-                          {config.label}
-                        </label>
-                        {renderFormField(key, config, "company")}
-                        <p style={{ fontSize: '10px', color: '#9ca3af', marginTop: '4px' }}>
-                          <code style={{ backgroundColor: '#f3f4f6', padding: '1px 4px', borderRadius: '3px', fontSize: '10px' }}>{config.envVar}</code>
-                        </p>
-                      </div>
-                    );
-                  })}
+            <div>
+              <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Fonts and Colors</h3>
+              <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '24px' }}>
+                Customize the visual appearance of your invoices
+              </p>
+              
+              {Object.entries(configuration.styling).map(([key, config]: [string, any]) => (
+                <div key={key} style={{ marginBottom: '20px' }}>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '13px', 
+                    fontWeight: '500', 
+                    marginBottom: '6px',
+                    color: '#374151'
+                  }}>
+                    {config.label}
+                  </label>
+                  {renderFormField(key, config, "styling")}
+                  <p style={{ fontSize: '10px', color: '#9ca3af', marginTop: '4px' }}>
+                    Environment variable: <code style={{ backgroundColor: '#f3f4f6', padding: '1px 4px', borderRadius: '3px', fontSize: '10px' }}>{config.envVar}</code>
+                  </p>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
           </Form>
         </div>
       </div>
