@@ -143,9 +143,9 @@ export default function CompanyDetails() {
       )}
 
       <Form method="post" encType="multipart/form-data">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', columnGap: '20px' }}>
           {/* Company Name */}
-          <div style={{ gridColumn: '1 / -1' }}>
+          <div style={{ gridColumn: '1 / -1', marginBottom: '4px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
               Company Name
             </label>
@@ -158,13 +158,14 @@ export default function CompanyDetails() {
                 padding: '8px 12px',
                 border: '1px solid #d1d5db',
                 borderRadius: '6px',
-                fontSize: '14px'
+                fontSize: '14px',
+                boxSizing: 'border-box'
               }}
             />
           </div>
 
           {/* Legal Name */}
-          <div style={{ gridColumn: '1 / -1' }}>
+          <div style={{ gridColumn: '1 / -1', marginBottom: '4px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
               Legal Name
             </label>
@@ -177,13 +178,14 @@ export default function CompanyDetails() {
                 padding: '8px 12px',
                 border: '1px solid #d1d5db',
                 borderRadius: '6px',
-                fontSize: '14px'
+                fontSize: '14px',
+                boxSizing: 'border-box'
               }}
             />
           </div>
 
           {/* Address Line 1 */}
-          <div>
+          <div style={{ marginBottom: '4px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
               Address Line 1
             </label>
@@ -196,13 +198,14 @@ export default function CompanyDetails() {
                 padding: '8px 12px',
                 border: '1px solid #d1d5db',
                 borderRadius: '6px',
-                fontSize: '14px'
+                fontSize: '14px',
+                boxSizing: 'border-box'
               }}
             />
           </div>
 
           {/* Address Line 2 */}
-          <div>
+          <div style={{ marginBottom: '4px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
               Address Line 2
             </label>
@@ -215,13 +218,14 @@ export default function CompanyDetails() {
                 padding: '8px 12px',
                 border: '1px solid #d1d5db',
                 borderRadius: '6px',
-                fontSize: '14px'
+                fontSize: '14px',
+                boxSizing: 'border-box'
               }}
             />
           </div>
 
           {/* City */}
-          <div>
+          <div style={{ marginBottom: '4px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
               City
             </label>
@@ -234,13 +238,14 @@ export default function CompanyDetails() {
                 padding: '8px 12px',
                 border: '1px solid #d1d5db',
                 borderRadius: '6px',
-                fontSize: '14px'
+                fontSize: '14px',
+                boxSizing: 'border-box'
               }}
             />
           </div>
 
           {/* State */}
-          <div>
+          <div style={{ marginBottom: '4px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
               State
             </label>
@@ -252,7 +257,8 @@ export default function CompanyDetails() {
                 padding: '8px 12px',
                 border: '1px solid #d1d5db',
                 borderRadius: '6px',
-                fontSize: '14px'
+                fontSize: '14px',
+                boxSizing: 'border-box'
               }}
             >
               <option value="">Select State</option>
@@ -263,7 +269,7 @@ export default function CompanyDetails() {
           </div>
 
           {/* Pincode */}
-          <div>
+          <div style={{ marginBottom: '4px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
               Pincode
             </label>
@@ -276,13 +282,14 @@ export default function CompanyDetails() {
                 padding: '8px 12px',
                 border: '1px solid #d1d5db',
                 borderRadius: '6px',
-                fontSize: '14px'
+                fontSize: '14px',
+                boxSizing: 'border-box'
               }}
             />
           </div>
 
           {/* GSTIN */}
-          <div>
+          <div style={{ marginBottom: '4px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
               GSTIN
             </label>
@@ -295,13 +302,14 @@ export default function CompanyDetails() {
                 padding: '8px 12px',
                 border: '1px solid #d1d5db',
                 borderRadius: '6px',
-                fontSize: '14px'
+                fontSize: '14px',
+                boxSizing: 'border-box'
               }}
             />
           </div>
 
           {/* Support Email */}
-          <div>
+          <div style={{ marginBottom: '4px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
               Support Email
             </label>
@@ -314,13 +322,14 @@ export default function CompanyDetails() {
                 padding: '8px 12px',
                 border: '1px solid #d1d5db',
                 borderRadius: '6px',
-                fontSize: '14px'
+                fontSize: '14px',
+                boxSizing: 'border-box'
               }}
             />
           </div>
 
           {/* Phone */}
-          <div>
+          <div style={{ marginBottom: '4px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
               Phone
             </label>
@@ -333,13 +342,14 @@ export default function CompanyDetails() {
                 padding: '8px 12px',
                 border: '1px solid #d1d5db',
                 borderRadius: '6px',
-                fontSize: '14px'
+                fontSize: '14px',
+                boxSizing: 'border-box'
               }}
             />
           </div>
 
           {/* Logo Upload */}
-          <div style={{ gridColumn: '1 / -1' }}>
+          <div style={{ gridColumn: '1 / -1', marginBottom: '4px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
               Company Logo
             </label>
@@ -363,7 +373,7 @@ export default function CompanyDetails() {
           </div>
 
           {/* Include Signature Checkbox */}
-          <div style={{ gridColumn: '1 / -1' }}>
+          <div style={{ gridColumn: '1 / -1', marginBottom: '4px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
               <input
                 type="checkbox"
@@ -376,7 +386,7 @@ export default function CompanyDetails() {
           </div>
 
           {/* Signature Upload */}
-          <div style={{ gridColumn: '1 / -1' }}>
+          <div style={{ gridColumn: '1 / -1', marginBottom: '4px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
               Signature Image
             </label>
