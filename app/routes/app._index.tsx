@@ -7,7 +7,7 @@ import { useLoaderData, useSearchParams, Link } from "react-router";
 import { authenticate } from "../shopify.server";
 import { getOrderLimit, getPlanTier } from "../utils/billing-helpers";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import { ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { QueryCommand } from "@aws-sdk/lib-dynamodb";
 
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import dynamodb from "../db.server";
@@ -53,19 +53,21 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     let lastEvaluatedKey: any = undefined;
 
     do {
-      const scanParams: any = {
+      const queryParams: any = {
         TableName: TABLE_NAME,
-        FilterExpression: "shop = :shop",
+        IndexName: "shop-timestamp-index",
+        KeyConditionExpression: "shop = :shop",
         ExpressionAttributeValues: {
           ":shop": session.shop,
         },
+        ScanIndexForward: false, // Descending order (newest first)
       };
 
       if (lastEvaluatedKey) {
-        scanParams.ExclusiveStartKey = lastEvaluatedKey;
+        queryParams.ExclusiveStartKey = lastEvaluatedKey;
       }
 
-      const result = await dynamodb.send(new ScanCommand(scanParams));
+      const result = await dynamodb.send(new QueryCommand(queryParams));
       allItems = allItems.concat(result.Items || []);
       lastEvaluatedKey = result.LastEvaluatedKey;
     } while (lastEvaluatedKey);
@@ -112,6 +114,29 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       return orderDate >= startOfMonth && o.status !== 'Cancelled';
     }).length;
 
+    // Calculate daily order data for the last 30 days
+    const last30Days = Array.from({ length: 30 }, (_, i) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (29 - i));
+      date.setHours(0, 0, 0, 0);
+      return date;
+    });
+
+    const dailyOrderData = last30Days.map(date => {
+      const nextDay = new Date(date);
+      nextDay.setDate(nextDay.getDate() + 1);
+      
+      const ordersOnDay = allItems.filter((o: any) => {
+        const orderDate = new Date(o.timestamp || o.createdAt || 0);
+        return orderDate >= date && orderDate < nextDay && o.status !== 'Cancelled';
+      }).length;
+
+      return {
+        date: date.toISOString().split('T')[0],
+        count: ordersOnDay
+      };
+    });
+
     return { 
       orders: displayOrders, 
       currentPage: page,
@@ -125,6 +150,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       currentPlan,
       orderLimit,
       ordersThisMonth,
+      dailyOrderData,
     };
   } catch (error) {
     console.error("Error loading orders:", error);
@@ -141,13 +167,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       currentPlan: "Free",
       orderLimit: 50,
       ordersThisMonth: 0,
+      dailyOrderData: [],
       error: String(error) 
     };
   }
 };
 
 export default function Index() {
-  const { orders, currentPage, totalPages, totalOrders, activeCount, cancelledCount, returnedCount, bucketName, shop, currentPlan, orderLimit, ordersThisMonth, error } = useLoaderData<typeof loader>();
+  const { orders, currentPage, totalPages, totalOrders, activeCount, cancelledCount, returnedCount, bucketName, shop, currentPlan, orderLimit, ordersThisMonth, dailyOrderData, error } = useLoaderData<typeof loader>();
   const [downloading, setDownloading] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -261,6 +288,30 @@ export default function Index() {
     return statusColors[status] || 'default';
   };
 
+  // Calculate chart dimensions and data points
+  const chartWidth = 800;
+  const chartHeight = 200;
+  const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+  const innerWidth = chartWidth - padding.left - padding.right;
+  const innerHeight = chartHeight - padding.top - padding.bottom;
+  
+  const maxOrders = Math.max(...(dailyOrderData?.map((d: any) => d.count) || [1]), 1);
+  const xStep = innerWidth / Math.max((dailyOrderData?.length || 1) - 1, 1);
+  
+  const points = (dailyOrderData || []).map((d: any, i: number) => {
+    const x = padding.left + i * xStep;
+    const y = padding.top + innerHeight - (d.count / maxOrders) * innerHeight;
+    return { x, y, count: d.count, date: d.date };
+  });
+  
+  const pathData = points.length > 0 
+    ? `M ${points.map((p: any) => `${p.x},${p.y}`).join(' L ')}`
+    : '';
+
+  const areaPathData = points.length > 0
+    ? `M ${padding.left},${padding.top + innerHeight} L ${points.map((p: any) => `${p.x},${p.y}`).join(' L ')} L ${padding.left + innerWidth},${padding.top + innerHeight} Z`
+    : '';
+
   return (
     <s-page heading="Invoice Ninja">
       <s-section>
@@ -268,6 +319,111 @@ export default function Index() {
           <s-banner tone="critical">
             <s-text>Error loading orders: {error}</s-text>
           </s-banner>
+        )}
+
+        {/* Order Trend Chart */}
+        {dailyOrderData && dailyOrderData.length > 0 && (
+          <div style={{ 
+            backgroundColor: 'white', 
+            padding: '24px', 
+            borderRadius: '12px', 
+            marginBottom: '24px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+          }}>
+            <div style={{ marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#111827', margin: '0 0 4px 0' }}>
+                Order Trend (Last 30 Days)
+              </h2>
+              <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>
+                Daily order volume over the past month
+              </p>
+            </div>
+            
+            <div style={{ overflowX: 'auto' }}>
+              <svg width={chartWidth} height={chartHeight} style={{ display: 'block' }}>
+                {/* Grid lines */}
+                {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => {
+                  const y = padding.top + innerHeight * (1 - ratio);
+                  return (
+                    <g key={i}>
+                      <line
+                        x1={padding.left}
+                        y1={y}
+                        x2={padding.left + innerWidth}
+                        y2={y}
+                        stroke="#e5e7eb"
+                        strokeWidth="1"
+                        strokeDasharray="3,3"
+                      />
+                      <text
+                        x={padding.left - 8}
+                        y={y + 4}
+                        textAnchor="end"
+                        fontSize="11"
+                        fill="#6b7280"
+                      >
+                        {Math.round(maxOrders * ratio)}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Area fill */}
+                <path
+                  d={areaPathData}
+                  fill="url(#areaGradient)"
+                  opacity="0.3"
+                />
+
+                {/* Line */}
+                <path
+                  d={pathData}
+                  fill="none"
+                  stroke="#6366f1"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+
+                {/* Data points */}
+                {points.map((point: any, i: number) => (
+                  <circle
+                    key={i}
+                    cx={point.x}
+                    cy={point.y}
+                    r="4"
+                    fill="white"
+                    stroke="#6366f1"
+                    strokeWidth="2"
+                  >
+                    <title>{`${new Date(point.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: ${point.count} orders`}</title>
+                  </circle>
+                ))}
+
+                {/* X-axis labels (show every 5 days) */}
+                {points.filter((_: any, i: number) => i % 5 === 0 || i === points.length - 1).map((point: any, i: number) => (
+                  <text
+                    key={i}
+                    x={point.x}
+                    y={padding.top + innerHeight + 20}
+                    textAnchor="middle"
+                    fontSize="11"
+                    fill="#6b7280"
+                  >
+                    {new Date(point.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </text>
+                ))}
+
+                {/* Gradient definition */}
+                <defs>
+                  <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity="0.5" />
+                    <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+          </div>
         )}
         
         {isOverLimit && (
@@ -341,42 +497,78 @@ export default function Index() {
             {/* Order Statistics */}
             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
               <div style={{ 
-                backgroundColor: 'white', 
-                padding: '16px', 
-                borderRadius: '8px', 
-                border: '1px solid #e5e7eb',
-                minWidth: '150px'
+                flex: '1',
+                minWidth: '160px',
+                background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                padding: '20px', 
+                borderRadius: '12px', 
+                position: 'relative',
+                overflow: 'hidden',
+                boxShadow: '0 4px 6px rgba(99, 102, 241, 0.2)'
               }}>
-                <div style={{ fontSize: '24px', fontWeight: '600', color: '#111827', marginBottom: '4px' }}>
+                <div style={{ 
+                  position: 'absolute', 
+                  top: '-20px', 
+                  right: '-20px', 
+                  width: '80px', 
+                  height: '80px', 
+                  borderRadius: '50%', 
+                  background: 'rgba(255, 255, 255, 0.15)' 
+                }} />
+                <div style={{ fontSize: '36px', fontWeight: '700', color: 'white', marginBottom: '4px', position: 'relative', zIndex: 1 }}>
                   {activeCount}
                 </div>
-                <div style={{ fontSize: '13px', color: '#6b7280' }}>Active</div>
+                <div style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.9)', fontWeight: '500', position: 'relative', zIndex: 1 }}>Active Orders</div>
               </div>
 
               <div style={{ 
-                backgroundColor: 'white', 
-                padding: '16px', 
-                borderRadius: '8px', 
-                border: '1px solid #e5e7eb',
-                minWidth: '150px'
+                flex: '1',
+                minWidth: '160px',
+                background: 'linear-gradient(135deg, #ec4899 0%, #f43f5e 100%)',
+                padding: '20px', 
+                borderRadius: '12px', 
+                position: 'relative',
+                overflow: 'hidden',
+                boxShadow: '0 4px 6px rgba(236, 72, 153, 0.2)'
               }}>
-                <div style={{ fontSize: '24px', fontWeight: '600', color: '#111827', marginBottom: '4px' }}>
+                <div style={{ 
+                  position: 'absolute', 
+                  top: '-20px', 
+                  right: '-20px', 
+                  width: '80px', 
+                  height: '80px', 
+                  borderRadius: '50%', 
+                  background: 'rgba(255, 255, 255, 0.15)' 
+                }} />
+                <div style={{ fontSize: '36px', fontWeight: '700', color: 'white', marginBottom: '4px', position: 'relative', zIndex: 1 }}>
                   {cancelledCount}
                 </div>
-                <div style={{ fontSize: '13px', color: '#6b7280' }}>Cancelled</div>
+                <div style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.9)', fontWeight: '500', position: 'relative', zIndex: 1 }}>Cancelled</div>
               </div>
 
               <div style={{ 
-                backgroundColor: 'white', 
-                padding: '16px', 
-                borderRadius: '8px', 
-                border: '1px solid #e5e7eb',
-                minWidth: '150px'
+                flex: '1',
+                minWidth: '160px',
+                background: 'linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%)',
+                padding: '20px', 
+                borderRadius: '12px', 
+                position: 'relative',
+                overflow: 'hidden',
+                boxShadow: '0 4px 6px rgba(6, 182, 212, 0.2)'
               }}>
-                <div style={{ fontSize: '24px', fontWeight: '600', color: '#111827', marginBottom: '4px' }}>
+                <div style={{ 
+                  position: 'absolute', 
+                  top: '-20px', 
+                  right: '-20px', 
+                  width: '80px', 
+                  height: '80px', 
+                  borderRadius: '50%', 
+                  background: 'rgba(255, 255, 255, 0.15)' 
+                }} />
+                <div style={{ fontSize: '36px', fontWeight: '700', color: 'white', marginBottom: '4px', position: 'relative', zIndex: 1 }}>
                   {returnedCount}
                 </div>
-                <div style={{ fontSize: '13px', color: '#6b7280' }}>Returned</div>
+                <div style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.9)', fontWeight: '500', position: 'relative', zIndex: 1 }}>Returned</div>
               </div>
             </div>
 

@@ -30,21 +30,40 @@ export async function upsertShop(shop: string, accessToken: string, scopes: stri
     
     const isFirstInstall = !existingShop.Item;
     
+    // Prepare consent object (auto-consent on installation)
+    const autoConsent = {
+      dataProcessing: true,
+      marketingCommunications: false, // Default to false, merchant can opt-in later
+      version: "1.0",
+      lastUpdated: new Date().toISOString()
+    };
+    
     // Use UpdateCommand to preserve existing fields like configurations
     await dynamodb.send(new UpdateCommand({
       TableName: SHOPS_TABLE,
       Key: { shop },
       UpdateExpression: isFirstInstall 
-        ? "SET accessToken = :token, scopes = :scopes, isActive = :active, templateId = if_not_exists(templateId, :templateId), installedAt = :now, updatedAt = :now"
-        : "SET accessToken = :token, scopes = :scopes, isActive = :active, templateId = if_not_exists(templateId, :templateId), updatedAt = :now",
+        ? "SET accessToken = :token, scopes = :scopes, isActive = :active, templateId = if_not_exists(templateId, :templateId), consent = :consent, installedAt = :now, updatedAt = :now"
+        : "SET accessToken = :token, scopes = :scopes, isActive = :active, templateId = if_not_exists(templateId, :templateId), consent = if_not_exists(consent, :consent), updatedAt = :now",
       ExpressionAttributeValues: {
         ":token": accessToken,
         ":scopes": scopes,
         ":active": true,
         ":templateId": "minimalist",
+        ":consent": autoConsent,
         ":now": now,
       },
     }));
+    
+    // Log consent on first install
+    if (isFirstInstall) {
+      await logAuditEvent(shop, "CONSENT_AUTO_GRANTED", {
+        dataProcessing: true,
+        marketingCommunications: false,
+        timestamp: new Date().toISOString(),
+        reason: "App installation - implicit consent"
+      });
+    }
     
     console.log(`Shop ${shop} record created/updated successfully (preserving configurations)`);
     return { success: true };
@@ -143,6 +162,7 @@ export async function createDefaultTemplateConfiguration(shop: string) {
           gstin: "",
           pan: "",
         },
+        isActive: true,
         createdAt: now,
         updatedAt: now,
       },
@@ -158,23 +178,40 @@ export async function createDefaultTemplateConfiguration(shop: string) {
 
 /**
  * Get template configuration for a shop
+ * If templateId is not provided, fetches the active configuration
  */
-export async function getTemplateConfiguration(shop: string, templateId: string = "minimalist") {
+export async function getTemplateConfiguration(shop: string, templateId?: string) {
   try {
-    const response = await dynamodb.send(new GetCommand({
-      TableName: TEMPLATE_CONFIG_TABLE,
-      Key: { shop, templateId },
-    }));
-    
-    return response.Item || null;
+    if (templateId) {
+      // Fetch specific template configuration
+      const response = await dynamodb.send(new GetCommand({
+        TableName: TEMPLATE_CONFIG_TABLE,
+        Key: { shop, templateId },
+      }));
+      
+      return response.Item || null;
+    } else {
+      // Fetch active configuration (query by shop and filter by isActive=true)
+      const response = await dynamodb.send(new QueryCommand({
+        TableName: TEMPLATE_CONFIG_TABLE,
+        KeyConditionExpression: "shop = :shop",
+        FilterExpression: "isActive = :active",
+        ExpressionAttributeValues: {
+          ":shop": shop,
+          ":active": true,
+        },
+      }));
+      
+      return response.Items && response.Items.length > 0 ? response.Items[0] : null;
+    }
   } catch (error) {
-    console.error(`Error fetching template configuration for ${shop}:`, error);
-    throw error;
+    console.error(`Error getting template configuration for ${shop}:`, error);
+    return null;
   }
 }
 
 /**
- * Save template configuration for a shop (create or update)
+ * Save template configuration for a shop
  */
 export async function saveTemplateConfiguration(
   shop: string,
@@ -184,6 +221,12 @@ export async function saveTemplateConfiguration(
   const now = Date.now();
   
   try {
+    // Get existing config to preserve isActive and createdAt
+    const existingConfig = await dynamodb.send(new GetCommand({
+      TableName: TEMPLATE_CONFIG_TABLE,
+      Key: { shop, templateId },
+    }));
+    
     await dynamodb.send(new PutCommand({
       TableName: TEMPLATE_CONFIG_TABLE,
       Item: {
@@ -191,8 +234,9 @@ export async function saveTemplateConfiguration(
         templateId,
         styling: config.styling,
         company: config.company,
+        isActive: existingConfig.Item?.isActive ?? true,
+        createdAt: existingConfig.Item?.createdAt ?? now,
         updatedAt: now,
-        createdAt: now, // Will be overwritten if exists, but good for new records
       },
     }));
     
@@ -368,6 +412,132 @@ export async function getShopCompanyDetails(shop: string): Promise<any | null> {
   } catch (error) {
     console.error(`[Shop] Error fetching company details for ${shop}:`, error);
     return null;
+  }
+}
+
+/**
+ * Get the selected template ID for a shop
+ */
+export async function getShopSelectedTemplate(shop: string): Promise<string> {
+  try {
+    const result = await dynamodb.send(new GetCommand({
+      TableName: SHOPS_TABLE,
+      Key: { shop },
+    }));
+    return result.Item?.templateId || "minimalist"; // Default to minimalist
+  } catch (error) {
+    console.error(`[Shop] Error fetching selected template for ${shop}:`, error);
+    return "minimalist"; // Default fallback
+  }
+}
+
+/**
+ * Update the selected template for a shop with isActive flag approach
+ */
+export async function updateShopSelectedTemplate(shop: string, templateId: string) {
+  try {
+    const now = Date.now();
+    
+    // 1. Update templateId in Shops table
+    await dynamodb.send(new UpdateCommand({
+      TableName: SHOPS_TABLE,
+      Key: { shop },
+      UpdateExpression: "SET templateId = :templateId, updatedAt = :now",
+      ExpressionAttributeValues: {
+        ":templateId": templateId,
+        ":now": now,
+      },
+    }));
+    
+    // 2. Get all existing template configurations for this shop
+    const allConfigsResponse = await dynamodb.send(new QueryCommand({
+      TableName: TEMPLATE_CONFIG_TABLE,
+      KeyConditionExpression: "shop = :shop",
+      ExpressionAttributeValues: {
+        ":shop": shop,
+      },
+    }));
+    
+    const allConfigs = allConfigsResponse.Items || [];
+    
+    // 3. Deactivate all existing configurations
+    for (const config of allConfigs) {
+      if (config.isActive) {
+        await dynamodb.send(new UpdateCommand({
+          TableName: TEMPLATE_CONFIG_TABLE,
+          Key: { shop, templateId: config.templateId },
+          UpdateExpression: "SET isActive = :inactive, updatedAt = :now",
+          ExpressionAttributeValues: {
+            ":inactive": false,
+            ":now": now,
+          },
+        }));
+      }
+    }
+    
+    // 4. Check if configuration exists for the selected template
+    const selectedConfig = allConfigs.find((c: any) => c.templateId === templateId);
+    
+    if (selectedConfig) {
+      // Configuration exists - just activate it (preserves styling)
+      await dynamodb.send(new UpdateCommand({
+        TableName: TEMPLATE_CONFIG_TABLE,
+        Key: { shop, templateId },
+        UpdateExpression: "SET isActive = :active, updatedAt = :now",
+        ExpressionAttributeValues: {
+          ":active": true,
+          ":now": now,
+        },
+      }));
+      
+      console.log(`Activated existing configuration for template ${templateId}`);
+    } else {
+      // Configuration doesn't exist - create it with defaults
+      const templateResponse = await dynamodb.send(new GetCommand({
+        TableName: TEMPLATES_TABLE,
+        Key: { templateId },
+      }));
+      
+      const template = templateResponse.Item;
+      if (!template) {
+        console.warn(`Template ${templateId} not found in Templates table`);
+        return { success: true };
+      }
+      
+      // Parse configurableOptions to extract default values
+      const configurableOptions = template.configurableOptions || {};
+      const defaultStyling: any = {};
+      
+      Object.entries(configurableOptions).forEach(([key, config]: [string, any]) => {
+        if (config.default !== undefined) {
+          defaultStyling[key] = config.default;
+        }
+      });
+      
+      // Get company details from any existing config to preserve across templates
+      const existingCompany = allConfigs.find((c: any) => c.company)?.company || {};
+      
+      await dynamodb.send(new PutCommand({
+        TableName: TEMPLATE_CONFIG_TABLE,
+        Item: {
+          shop,
+          templateId,
+          styling: defaultStyling,
+          company: existingCompany,
+          isActive: true,
+          createdAt: now,
+          updatedAt: now,
+        },
+      }));
+      
+      console.log(`Created new configuration for template ${templateId}`);
+    }
+    
+    console.log(`Selected template updated to ${templateId} for shop ${shop}`);
+    return { success: true };
+  } catch (error) {
+    console.error(`Error updating selected template for ${shop}:`, error);
+    throw error;
   }
 }
 

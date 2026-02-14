@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 595 842" style="background:#fff">
+  <!-- Gradient Header -->
+  <defs>
+    <linearGradient id="headerGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#8b5cf6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ec4899;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <rect width="595" height="140" fill="url(#headerGradient)"/>
+  
+  <!-- Accent bar at bottom of header -->
+  <rect y="136" width="595" height="4" fill="#ec4899"/>
+  
+  <!-- Logo placeholder -->
+  <rect x="520" y="30" width="55" height="55" fill="#f0f0f0" rx="4"/>
+  <text x="547.5" y="63" font-family="Arial, sans-serif" font-size="10" fill="#999" text-anchor="middle">LOGO</text>
+  
+  <!-- Company Info (white text on gradient) -->
+  <text x="40" y="45" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="#ffffff">ABC Fashion</text>
+  <text x="40" y="68" font-family="Arial, sans-serif" font-size="10" fill="#ffffff">ABC Retail Pvt Ltd</text>
+  <text x="40" y="84" font-family="Arial, sans-serif" font-size="9" fill="#ffffff">123 Fashion Street, Andheri West</text>
+  <text x="40" y="98" font-family="Arial, sans-serif" font-size="9" fill="#ffffff">Mumbai, Maharashtra - 400058</text>
+  <text x="40" y="112" font-family="Arial, sans-serif" font-size="9" fill="#ffffff">GSTIN: 1234567890AJDS7</text>
+  
+  <!-- INVOICE Badge (pink) -->
+  <rect x="40" y="170" width="85" height="30" fill="#ec4899" rx="8"/>
+  <text x="82.5" y="192" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="middle">INVOICE</text>
+  
+  <!-- Invoice Info -->
+  <text x="40" y="230" font-family="Arial, sans-serif" font-size="11" fill="#6366f1" font-weight="600">Invoice Number:</text>
+  <text x="40" y="246" font-family="Arial, sans-serif" font-size="10" fill="#374151">INV-PG1229</text>
+  
+  <text x="40" y="270" font-family="Arial, sans-serif" font-size="11" fill="#6366f1" font-weight="600">Invoice Date:</text>
+  <text x="40" y="286" font-family="Arial, sans-serif" font-size="10" fill="#374151">2025-12-29</text>
+  
+  <text x="40" y="310" font-family="Arial, sans-serif" font-size="11" fill="#6366f1" font-weight="600">Order Number:</text>
+  <text x="40" y="326" font-family="Arial, sans-serif" font-size="10" fill="#374151">PG1229</text>
+  
+  <!-- Bill To Box (light blue background) -->
+  <rect x="350" y="170" width="205" height="120" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5" rx="8"/>
+  <text x="365" y="190" font-family="Arial, sans-serif" font-size="11" fill="#6366f1" font-weight="600">Bill To:</text>
+  <text x="365" y="210" font-family="Arial, sans-serif" font-size="10" fill="#374151" font-weight="600">Dan Brown</text>
+  <text x="365" y="228" font-family="Arial, sans-serif" font-size="9" fill="#6b7280">123 Road ABC Colony Borivali East</text>
+  <text x="365" y="243" font-family="Arial, sans-serif" font-size="9" fill="#6b7280">C-102 - ABC Tower</text>
+  <text x="365" y="258" font-family="Arial, sans-serif" font-size="9" fill="#6b7280">Mumbai, MH, 400066</text>
+  <text x="365" y="273" font-family="Arial, sans-serif" font-size="9" fill="#6b7280">Phone: 9769003006</text>
+  
+  <!-- Order Items Header (colorful) -->
+  <text x="40" y="375" font-family="Arial, sans-serif" font-size="14" fill="#6366f1" font-weight="600">Order Items</text>
+  <line x1="40" y1="382" x2="555" y2="382" stroke="#ec4899" stroke-width="2"/>
+  
+  <!-- Table Header (gradient background) -->
+  <rect x="40" y="395" width="515" height="28" fill="#6366f1" rx="6"/>
+  <text x="50" y="414" font-family="Arial, sans-serif" font-size="9" fill="#ffffff" font-weight="600">Item</text>
+  <text x="265" y="414" font-family="Arial, sans-serif" font-size="9" fill="#ffffff" font-weight="600">Qty</text>
+  <text x="310" y="414" font-family="Arial, sans-serif" font-size="9" fill="#ffffff" font-weight="600">MRP</text>
+  <text x="370" y="414" font-family="Arial, sans-serif" font-size="9" fill="#ffffff" font-weight="600">Price</text>
+  <text x="430" y="414" font-family="Arial, sans-serif" font-size="9" fill="#ffffff" font-weight="600">IGST</text>
+  <text x="500" y="414" font-family="Arial, sans-serif" font-size="9" fill="#ffffff" font-weight="600">Total</text>
+  
+  <!-- Table Row (alternating light color) -->
+  <rect x="40" y="423" width="515" height="30" fill="#f9fafb"/>
+  <text x="50" y="442" font-family="Arial, sans-serif" font-size="9" fill="#374151">Pleated Trousers | Latte Cream (XS)</text>
+  <text x="270" y="442" font-family="Arial, sans-serif" font-size="9" fill="#374151">1</text>
+  <text x="310" y="442" font-family="Arial, sans-serif" font-size="9" fill="#374151">₹2590</text>
+  <text x="370" y="442" font-family="Arial, sans-serif" font-size="9" fill="#374151">₹2085</text>
+  <text x="430" y="442" font-family="Arial, sans-serif" font-size="9" fill="#374151">₹104</text>
+  <text x="490" y="442" font-family="Arial, sans-serif" font-size="9" fill="#374151">₹2190.00</text>
+  
+  <!-- Totals Box (bordered, right aligned) -->
+  <rect x="360" y="480" width="195" height="125" fill="#faf5ff" stroke="#8b5cf6" stroke-width="2" rx="8"/>
+  
+  <text x="375" y="505" font-family="Arial, sans-serif" font-size="11" fill="#6b7280">Subtotal:</text>
+  <text x="540" y="505" font-family="Arial, sans-serif" font-size="11" fill="#374151" text-anchor="end">₹2590.00</text>
+  
+  <text x="375" y="530" font-family="Arial, sans-serif" font-size="11" fill="#ef4444">Discount:</text>
+  <text x="540" y="530" font-family="Arial, sans-serif" font-size="11" fill="#ef4444" text-anchor="end">- ₹400.00</text>
+  
+  <text x="375" y="555" font-family="Arial, sans-serif" font-size="11" fill="#6b7280">IGST:</text>
+  <text x="540" y="555" font-family="Arial, sans-serif" font-size="11" fill="#374151" text-anchor="end">₹104.29</text>
+  
+  <line x1="375" y1="568" x2="540" y2="568" stroke="#8b5cf6" stroke-width="1.5"/>
+  
+  <text x="375" y="592" font-family="Arial, sans-serif" font-size="13" fill="#ec4899" font-weight="bold">Total:</text>
+  <text x="540" y="592" font-family="Arial, sans-serif" font-size="13" fill="#ec4899" font-weight="bold" text-anchor="end">₹2190.00</text>
+  
+  <!-- Footer Notes Section -->
+  <text x="40" y="650" font-family="Arial, sans-serif" font-size="10" fill="#6366f1" font-weight="600">Notes / Terms:</text>
+  <text x="40" y="670" font-family="Arial, sans-serif" font-size="9" fill="#6b7280">Thank you for your business!</text>
+  
+  <!-- Signature placeholder -->
+  <text x="400" y="750" font-family="Arial, sans-serif" font-size="9" fill="#6b7280">Authorized Signature</text>
+  <line x1="400" y1="755" x2="540" y2="755" stroke="#d1d5db" stroke-width="1"/>
+  
+  <!-- Zen branding watermark -->
+  <text x="297.5" y="820" font-family="Arial, sans-serif" font-size="9" fill="#d1d5db" text-anchor="middle">Zen Template - Colorful &amp; Modern</text>
+</svg>
