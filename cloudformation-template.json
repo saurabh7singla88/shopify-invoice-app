@@ -522,12 +522,38 @@
           {
             "AttributeName": "orderId",
             "AttributeType": "S"
+          },
+          {
+            "AttributeName": "shop",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "timestamp",
+            "AttributeType": "S"
           }
         ],
         "KeySchema": [
           {
             "AttributeName": "orderId",
             "KeyType": "HASH"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "shop-timestamp-index",
+            "KeySchema": [
+              {
+                "AttributeName": "shop",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "timestamp",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            }
           }
         ],
         "Tags": [

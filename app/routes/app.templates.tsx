@@ -1,12 +1,31 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import type { LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useNavigate, useSearchParams, Link, Outlet } from "react-router";
+import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
+import { useLoaderData, useNavigate, useSearchParams, Link, Outlet, useSubmit } from "react-router";
 import { authenticate } from "../shopify.server";
 import { hasMultipleTemplates } from "../utils/billing-helpers";
 import { boundary } from "@shopify/shopify-app-react-router/server";
+import { getShopSelectedTemplate, updateShopSelectedTemplate } from "../services/dynamodb.server";
+
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const templateId = formData.get("templateId") as string;
+  
+  if (!templateId) {
+    return { success: false, error: "Template ID is required" };
+  }
+  
+  try {
+    await updateShopSelectedTemplate(session.shop, templateId);
+    return { success: true, templateId };
+  } catch (error) {
+    console.error("Error updating template:", error);
+    return { success: false, error: "Failed to update template" };
+  }
+};
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { billing } = await authenticate.admin(request);
+  const { billing, session } = await authenticate.admin(request);
   
   // Check if user has Premium or Advanced plan for multiple templates
   const billingCheck = await billing.check({
@@ -20,6 +39,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
   
   const hasAccess = hasMultipleTemplates(currentPlan);
+  
+  // Extract URL params for embedded app context
+  const url = new URL(request.url);
+  const host = url.searchParams.get("host");
+  const shop = url.searchParams.get("shop");
   
   // Fetch available templates from the generator system
   const templates = [
@@ -68,19 +92,77 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           envVar: "INVOICE_BODY_FONT_SIZE"
         }
       }
+    },
+    {
+      id: "zen",
+      name: "Zen",
+      description: "Colorful, modern design with vibrant gradients and accents. Perfect for brands with a bold identity. Fully configurable like Minimalist.",
+      previewImage: "/templates/zen-preview.svg",
+      isConfigurable: true,
+      configurations: {
+        primaryColor: {
+          type: "color",
+          label: "Primary Color",
+          default: "#6366f1",
+          envVar: "INVOICE_PRIMARY_COLOR"
+        },
+        secondaryColor: {
+          type: "color",
+          label: "Secondary Color",
+          default: "#8b5cf6",
+          envVar: "INVOICE_SECONDARY_COLOR"
+        },
+        accentColor: {
+          type: "color",
+          label: "Accent Color",
+          default: "#ec4899",
+          envVar: "INVOICE_ACCENT_COLOR"
+        },
+        fontFamily: {
+          type: "select",
+          label: "Font Family",
+          default: "Helvetica",
+          options: ["Helvetica", "Courier", "Times-Roman"],
+          envVar: "INVOICE_FONT_FAMILY"
+        },
+        titleFontSize: {
+          type: "number",
+          label: "Title Font Size",
+          default: 32,
+          min: 20,
+          max: 40,
+          envVar: "INVOICE_TITLE_FONT_SIZE"
+        },
+        headingFontSize: {
+          type: "number",
+          label: "Heading Font Size",
+          default: 18,
+          min: 12,
+          max: 24,
+          envVar: "INVOICE_HEADING_FONT_SIZE"
+        },
+        bodyFontSize: {
+          type: "number",
+          label: "Body Font Size",
+          default: 11,
+          min: 8,
+          max: 16,
+          envVar: "INVOICE_BODY_FONT_SIZE"
+        }
+      }
     }
   ];
   
-  // For now, return hardcoded selected template
-  // In production, this would fetch from database
-  const selectedTemplate = "minimalist";
+  // Fetch selected template from database
+  const selectedTemplate = await getShopSelectedTemplate(session.shop);
   
-  return { selectedTemplate, templates, hasMultipleTemplates: hasAccess };
+  return { selectedTemplate, templates, hasMultipleTemplates: hasAccess, host: host || "", shop: shop || "" };
 };
 
 export default function Templates() {
-  const { selectedTemplate, templates, hasMultipleTemplates } = useLoaderData<typeof loader>();
+  const { selectedTemplate, templates, hasMultipleTemplates, host, shop } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
+  const submit = useSubmit();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState("templates");
   const linkRef = useRef<HTMLAnchorElement>(null);
@@ -153,7 +235,7 @@ export default function Templates() {
                   <img 
                     src={selectedTemplateData.previewImage} 
                     alt={`${selectedTemplateData.name} Preview`}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                   />
                 ) : (
                   <div style={{
@@ -233,16 +315,19 @@ export default function Templates() {
           )}
           
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
-            {availableTemplates.map((template) => (
+            {availableTemplates.map((template) => {
+              const isSelected = template.id === selectedTemplate;
+              return (
               <div
                 key={template.id}
                 style={{
                   backgroundColor: 'white',
-                  border: '1px solid #e5e7eb',
+                  border: isSelected ? '2px solid #6366f1' : '1px solid #e5e7eb',
                   borderRadius: '8px',
                   overflow: 'hidden',
                   cursor: 'pointer',
                   transition: 'box-shadow 0.2s',
+                  position: 'relative',
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.boxShadow = '0 4px 6px -1px rgb(0 0 0 / 0.1)';
@@ -251,6 +336,22 @@ export default function Templates() {
                   e.currentTarget.style.boxShadow = 'none';
                 }}
               >
+                {isSelected && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '8px',
+                    right: '8px',
+                    backgroundColor: '#6366f1',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    zIndex: 10,
+                  }}>
+                    ✓ Selected
+                  </div>
+                )}
                 <div style={{
                   width: '100%',
                   height: '280px',
@@ -261,7 +362,7 @@ export default function Templates() {
                     <img 
                       src={template.previewImage} 
                       alt={`${template.name} Preview`}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     />
                   ) : (
                     <div style={{
@@ -288,15 +389,17 @@ export default function Templates() {
                       if (!hasMultipleTemplates) {
                         navigate('/app/pricing');
                       } else {
-                        // Handle template selection
-                        alert(`Selected template: ${template.name}`);
+                        // Save template selection
+                        const formData = new FormData();
+                        formData.append('templateId', template.id);
+                        submit(formData, { method: 'post' });
                       }
                     }}
                     style={{
                       padding: '8px 16px',
-                      backgroundColor: hasMultipleTemplates ? 'white' : '#f3f4f6',
-                      color: hasMultipleTemplates ? '#1f2937' : '#9ca3af',
-                      border: '1px solid #d1d5db',
+                      backgroundColor: isSelected ? '#6366f1' : (hasMultipleTemplates ? 'white' : '#f3f4f6'),
+                      color: isSelected ? 'white' : (hasMultipleTemplates ? '#1f2937' : '#9ca3af'),
+                      border: isSelected ? 'none' : '1px solid #d1d5db',
                       borderRadius: '6px',
                       fontSize: '13px',
                       fontWeight: '500',
@@ -305,11 +408,12 @@ export default function Templates() {
                     }}
                     disabled={!hasMultipleTemplates}
                   >
-                    {hasMultipleTemplates ? 'Select Template' : '🔒 Upgrade to Unlock'}
+                    {isSelected ? '✓ Selected' : (hasMultipleTemplates ? 'Select Template' : '🔒 Upgrade to Unlock')}
                   </button>
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
       </s-section>

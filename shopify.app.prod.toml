@@ -1,0 +1,50 @@
+# Production configuration
+# This file is used when running: npm run deploy:shopify -- --config=shopify.app.prod.toml
+
+client_id = "2075cb93ffec1949521b3c46402f202f"
+name = "GSTGo"
+application_url = "https://b2d6rmict3.execute-api.us-east-1.amazonaws.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = false
+
+[webhooks]
+api_version = "2026-04"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/create" ]
+  uri = "/webhooks/orders/create"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/cancelled" ]
+  uri = "/webhooks/orders/cancelled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/updated" ]
+  uri = "/webhooks/orders/updated"
+
+  [[webhooks.subscriptions]]
+  topics = [ "products/update" ]
+  uri = "/webhooks/products/update"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_orders,read_customers,read_products"
+# Required for token exchange authentication strategy
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "https://b2d6rmict3.execute-api.us-east-1.amazonaws.com/auth/callback",
+  "https://b2d6rmict3.execute-api.us-east-1.amazonaws.com/auth/shopify/callback",
+  "https://b2d6rmict3.execute-api.us-east-1.amazonaws.com/api/auth"
+]
