@@ -166,12 +166,18 @@ export default function Templates() {
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState("templates");
   const linkRef = useRef<HTMLAnchorElement>(null);
+  const [isSelecting, setIsSelecting] = useState<string | null>(null);
 
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  // Reset loading state when selectedTemplate changes (after reload)
+  useEffect(() => {
+    setIsSelecting(null);
+  }, [selectedTemplate]);
 
   // Build URL with preserved query params (host, shop, etc.)
   const buildUrl = (path: string) => {
@@ -212,23 +218,44 @@ export default function Templates() {
         {/* Selected Template */}
         {selectedTemplateData && (
           <div style={{ marginBottom: '32px' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>Selected invoice template</h2>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px', color: '#111827' }}>Selected invoice template</h2>
             <div style={{
               backgroundColor: 'white',
-              border: '1px solid #e5e7eb',
-              borderRadius: '8px',
+              border: '2px solid #10b981',
+              borderRadius: '12px',
               padding: '24px',
               display: 'flex',
               gap: '24px',
-              alignItems: 'flex-start'
+              alignItems: 'flex-start',
+              boxShadow: '0 1px 3px rgba(16, 185, 129, 0.1)',
+              position: 'relative',
             }}>
+              {/* Selected Badge */}
+              <div style={{
+                position: 'absolute',
+                top: '-10px',
+                left: '24px',
+                backgroundColor: '#10b981',
+                color: 'white',
+                padding: '4px 12px',
+                borderRadius: '12px',
+                fontSize: '12px',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}>
+                <span style={{ fontSize: '14px' }}>✓</span>
+                Active
+              </div>
+              
               <div style={{
                 width: '400px',
                 height: '520px',
                 backgroundColor: '#f3f4f6',
                 borderRadius: '8px',
                 overflow: 'hidden',
-                border: '1px solid #e5e7eb',
+                border: '1px solid #d1d5db',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
               }}>
                 {selectedTemplateData.previewImage ? (
@@ -252,7 +279,7 @@ export default function Templates() {
                 )}
               </div>
               <div style={{ flex: 1 }}>
-                <h3 style={{ fontSize: '20px', fontWeight: '600', marginBottom: '12px' }}>{selectedTemplateData.name}</h3>
+                <h3 style={{ fontSize: '20px', fontWeight: '600', marginBottom: '12px', color: '#111827' }}>{selectedTemplateData.name}</h3>
                 <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '20px', lineHeight: '1.6' }}>
                   {selectedTemplateData.description}
                 </p>
@@ -286,7 +313,7 @@ export default function Templates() {
 
         {/* Available Templates */}
         <div>
-          <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>Available Templates</h2>
+          <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px', color: '#111827' }}>Available Templates</h2>
           
           {!hasMultipleTemplates && (
             <div style={{
@@ -326,14 +353,19 @@ export default function Templates() {
                   borderRadius: '8px',
                   overflow: 'hidden',
                   cursor: 'pointer',
-                  transition: 'box-shadow 0.2s',
+                  transition: 'all 0.2s',
                   position: 'relative',
+                  opacity: hasMultipleTemplates ? 1 : 0.65,
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = '0 4px 6px -1px rgb(0 0 0 / 0.1)';
+                  if (hasMultipleTemplates) {
+                    e.currentTarget.style.boxShadow = '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -1px rgb(0 0 0 / 0.06)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.boxShadow = 'none';
+                  e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
                 {isSelected && (
@@ -390,11 +422,13 @@ export default function Templates() {
                         navigate('/app/pricing');
                       } else {
                         // Save template selection
+                        setIsSelecting(template.id);
                         const formData = new FormData();
                         formData.append('templateId', template.id);
                         submit(formData, { method: 'post' });
                       }
                     }}
+                    disabled={!hasMultipleTemplates || isSelecting === template.id}
                     style={{
                       padding: '8px 16px',
                       backgroundColor: isSelected ? '#6366f1' : (hasMultipleTemplates ? 'white' : '#f3f4f6'),
@@ -403,13 +437,32 @@ export default function Templates() {
                       borderRadius: '6px',
                       fontSize: '13px',
                       fontWeight: '500',
-                      cursor: hasMultipleTemplates ? 'pointer' : 'not-allowed',
+                      cursor: hasMultipleTemplates && isSelecting !== template.id ? 'pointer' : 'not-allowed',
                       width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
                     }}
-                    disabled={!hasMultipleTemplates}
                   >
-                    {isSelected ? '✓ Selected' : (hasMultipleTemplates ? 'Select Template' : '🔒 Upgrade to Unlock')}
+                    {isSelecting === template.id ? (
+                      <>
+                        <svg style={{ animation: 'spin 1s linear infinite', width: '14px', height: '14px' }} viewBox="0 0 24 24">
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" opacity="0.25"/>
+                          <path d="M12 2 A10 10 0 0 1 22 12" stroke="currentColor" strokeWidth="4" fill="none" strokeLinecap="round"/>
+                        </svg>
+                        Selecting...
+                      </>
+                    ) : (
+                      isSelected ? '✓ Selected' : (hasMultipleTemplates ? 'Select Template' : '🔒 Upgrade to Unlock')
+                    )}
                   </button>
+                  <style>{`
+                    @keyframes spin {
+                      from { transform: rotate(0deg); }
+                      to { transform: rotate(360deg); }
+                    }
+                  `}</style>
                 </div>
               </div>
             );
