@@ -8,6 +8,7 @@ import {
   fetchShopConfig,
   resolveLocationState,
   checkInvoiceExists,
+  checkShopBillingLimit,
   generateInvoicePipeline,
   moveInvoiceToFolder,
   jsonResponse,
@@ -267,6 +268,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         try {
           const shopConfig = await fetchShopConfig(shop);
         const { companyState, companyGSTIN } = shopConfig;
+        
+        // ── Check billing limits before regenerating invoice ─────────────────
+        const billingCheck = await checkShopBillingLimit(shop);
+        if (!billingCheck.canProcess) {
+          console.log(`[Billing] Order limit reached for shop ${shop}: ${billingCheck.ordersThisMonth}/${billingCheck.orderLimit}, skipping exchange invoice regeneration`);
+          
+          return jsonResponse({
+            success: false,
+            message: `Monthly order limit reached (${billingCheck.orderLimit} orders on ${billingCheck.currentPlan} plan). Cannot regenerate exchange invoice.`,
+            ordersThisMonth: billingCheck.ordersThisMonth,
+            orderLimit: billingCheck.orderLimit,
+            currentPlan: billingCheck.currentPlan,
+            requiresUpgrade: true,
+          }, 402); // 402 Payment Required
+        }
         
         // Resolve fulfillment location state
         let fulfillmentState = companyState;

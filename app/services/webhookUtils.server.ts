@@ -243,6 +243,106 @@ export async function checkInvoiceExists(orderId: string): Promise<string | null
   return null;
 }
 
+// ─── Billing Limit Check ─────────────────────────────────────────────────────
+
+/**
+ * Checks if shop can process more orders based on billing plan limits
+ * 
+ * @returns Object with canProcess flag, current plan, limits, and usage
+ */
+export async function checkShopBillingLimit(shop: string): Promise<{
+  canProcess: boolean;
+  currentPlan: string;
+  orderLimit: number | null;
+  ordersThisMonth: number;
+}> {
+  // Import billing helpers
+  let getOrderLimit, getEffectivePlan;
+  try {
+    const helpers = await import("../utils/billing-helpers");
+    getOrderLimit = helpers.getOrderLimit;
+    getEffectivePlan = helpers.getEffectivePlan;
+  } catch (importError) {
+    console.error("Error importing billing helpers:", importError);
+    throw importError;
+  }
+  
+  // Get shop's current billing plan from Shops table
+  let currentPlan = "Free";
+  try {
+    const shopResult = await dynamodb.send(new GetCommand({
+      TableName: TABLE_NAMES.SHOPS,
+      Key: { shop },
+    }));
+    
+    if (shopResult.Item?.billingPlan) {
+      currentPlan = shopResult.Item.billingPlan;
+    }
+  } catch (error) {
+    console.error("Error fetching shop billing plan:", error);
+  }
+  
+  // Get order limit for current plan
+  const orderLimit = getOrderLimit(currentPlan);
+  
+  // If unlimited (null), always allow processing
+  if (orderLimit === null) {
+    return {
+      canProcess: true,
+      currentPlan,
+      orderLimit: null,
+      ordersThisMonth: 0,
+    };
+  }
+  
+  // Count orders this month (excluding cancelled orders)
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfMonthISO = startOfMonth.toISOString();
+  
+  try {
+    // Query using ScanCommand and filter by shop and timestamp
+    const { ScanCommand } = await import("@aws-sdk/lib-dynamodb");
+    
+    const ordersResult = await dynamodb.send(new ScanCommand({
+      TableName: TABLE_NAMES.ORDERS,
+      FilterExpression: "shop = :shop AND #ts >= :startOfMonth AND #status <> :cancelled",
+      ExpressionAttributeNames: {
+        "#ts": "timestamp",
+        "#status": "status",
+      },
+      ExpressionAttributeValues: {
+        ":shop": shop,
+        ":startOfMonth": startOfMonthISO,
+        ":cancelled": "Cancelled",
+      },
+    }));
+    
+    const ordersThisMonth = ordersResult.Items?.length || 0;
+    
+    // Check if can process (under limit)
+    const canProcess = ordersThisMonth < orderLimit;
+    
+    console.log(`[Billing Check] Shop: ${shop}, Plan: ${currentPlan}, Orders: ${ordersThisMonth}/${orderLimit}, Can process: ${canProcess}`);
+    
+    return {
+      canProcess,
+      currentPlan,
+      orderLimit,
+      ordersThisMonth,
+    };
+  } catch (error) {
+    console.error("[checkShopBillingLimit] Error counting monthly orders:", error);
+    // On error, allow processing (fail open)
+    return {
+      canProcess: true,
+      currentPlan,
+      orderLimit,
+      ordersThisMonth: 0,
+    };
+  }
+}
+
 // ─── Invoice Generation Pipeline ─────────────────────────────────────────────
 
 /**

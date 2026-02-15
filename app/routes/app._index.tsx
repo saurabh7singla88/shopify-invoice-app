@@ -37,6 +37,21 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   
   const orderLimit = getOrderLimit(currentPlan);
   
+  // Update billing plan in Shops table for webhook access
+  try {
+    await dynamodb.send(new (await import("@aws-sdk/lib-dynamodb")).UpdateCommand({
+      TableName: TABLE_NAMES.SHOPS,
+      Key: { shop: session.shop },
+      UpdateExpression: "SET billingPlan = :plan, updatedAt = :now",
+      ExpressionAttributeValues: {
+        ":plan": currentPlan,
+        ":now": Date.now(),
+      },
+    }));
+  } catch (error) {
+    console.error("Error updating billing plan in Shops table:", error);
+  }
+  
   // Setup shop in background (non-blocking)
   setupShop(session.shop, session.accessToken, session.scope || "");
   
@@ -705,10 +720,16 @@ export default function Index() {
                               if (fulfillmentStatus === 'partial') return 'Partially Fulfilled';
                               if (fulfillmentStatus === 'on_hold') return 'On Hold';
                               if (fulfillmentStatus === 'unfulfilled') return 'Unfulfilled';
-                              // Fallback to order.status
+                              // Fallback to order.status (but skip if it's "Limit Reached" - we show that separately)
+                              if (order.status === 'Limit Reached') return 'Created';
                               return order.status || 'Created';
                             })()}
                           </s-badge>
+                          {(order.limitReached || order.status === 'Limit Reached') && (
+                            <s-badge tone="warning">
+                              Limit Reached
+                            </s-badge>
+                          )}
                           {(order.exchangeType === "original" || order.returnType === "return") && (
                             <span style={{ 
                               fontSize: '11px', 

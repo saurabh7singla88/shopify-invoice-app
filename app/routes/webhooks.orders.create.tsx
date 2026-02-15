@@ -10,6 +10,7 @@ import {
   fetchShopConfig,
   resolveLocationState,
   checkInvoiceExists,
+  checkShopBillingLimit,
   generateInvoicePipeline,
   jsonResponse,
   errorResponse,
@@ -99,7 +100,51 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const eventId = randomUUID();
     const timestamp = new Date().toISOString();
 
-    // Only store order and invoke Lambda if invoice doesn't exist yet
+    // ── Check billing limits BEFORE storing order ────────────────────────
+    const billingCheck = await checkShopBillingLimit(shop);
+    
+    if (!billingCheck.canProcess) {
+      console.log(`[Billing] Order limit reached for shop ${shop}: ${billingCheck.ordersThisMonth}/${billingCheck.orderLimit}`);
+      
+      // Still save the order to DB but mark it with limitReached flag
+      if (!invoiceExists) {
+        const item = {
+          eventId,
+          name: payload.name,
+          orderId,
+          shop,
+          status: "Created",
+          fulfillment_status: payload.fulfillment_status || "unfulfilled",
+          financial_status: payload.financial_status || "pending",
+          customerName,
+          payload,
+          timestamp,
+          createdAt: payload.created_at || timestamp,
+          sourceIP: payload.browser_ip || payload.client_details?.browser_ip || null,
+          topic,
+          updatedAt: timestamp,
+          limitReached: true,
+          billingLimitMessage: `Monthly order limit reached (${billingCheck.orderLimit} orders on ${billingCheck.currentPlan} plan)`,
+          ttl: Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60,
+        };
+        
+        await dynamodb.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
+        console.log(`[Billing] Order ${payload.name} saved with limitReached flag`);
+      }
+      
+      return jsonResponse({
+        success: false,
+        message: `Monthly order limit reached (${billingCheck.orderLimit} orders on ${billingCheck.currentPlan} plan). Please upgrade to continue processing invoices.`,
+        ordersThisMonth: billingCheck.ordersThisMonth,
+        orderLimit: billingCheck.orderLimit,
+        currentPlan: billingCheck.currentPlan,
+        requiresUpgrade: true,
+        eventId,
+        timestamp,
+      }, 402);
+    }
+
+    // Only store order and invoke Lambda if invoice doesn't exist yet AND limit not reached
     if (!invoiceExists) {
       // Check if this is an exchange order
       // Shopify creates exchange orders as draft orders with source_name="shopify_draft_order"
