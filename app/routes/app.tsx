@@ -44,45 +44,8 @@ export default function App() {
         <s-link href="/app">Orders</s-link>
         <s-link href="/app/templates">Templates</s-link>
         <s-link href="/app/reports">Reports</s-link>
-        <s-link href="/app/settings/setup-guide">Settings</s-link>
+        <s-link href="/app/settings">Settings</s-link>
         <s-link href="/app/pricing">Pricing</s-link>
-        {hasPrioritySupport && (
-          <div style={{ 
-            marginTop: 'auto', 
-            padding: '12px 16px', 
-            borderTop: '1px solid #e5e7eb' 
-          }}>
-            <div style={{ 
-              backgroundColor: '#f0fdf4', 
-              border: '1px solid #86efac', 
-              borderRadius: '8px', 
-              padding: '12px',
-              fontSize: '13px'
-            }}>
-              <div style={{ fontWeight: '600', color: '#166534', marginBottom: '4px' }}>
-                ⭐ Priority Support
-              </div>
-              <div style={{ color: '#15803d', fontSize: '12px', marginBottom: '8px' }}>
-                Need help? Get priority assistance
-              </div>
-              <a 
-                href="mailto:support@invoiceninja.com?subject=Priority Support Request"
-                style={{
-                  display: 'inline-block',
-                  padding: '6px 12px',
-                  backgroundColor: '#22c55e',
-                  color: 'white',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: '500',
-                  textDecoration: 'none'
-                }}
-              >
-                Contact Support
-              </a>
-            </div>
-          </div>
-        )}
       </s-app-nav>
       <Outlet />
     </AppProvider>

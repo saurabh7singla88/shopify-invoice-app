@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 export default function Settings() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [activeSection, setActiveSection] = useState("setup-guide");
+  const [activeSection, setActiveSection] = useState("company-details");
 
-  // Redirect to setup-guide by default
+  // Redirect to company-details by default
   useEffect(() => {
     if (location.pathname === "/app/settings" || location.pathname === "/app/settings/") {
-      navigate("/app/settings/setup-guide", { replace: true });
+      navigate("/app/settings/company-details", { replace: true });
     }
   }, [location.pathname, navigate]);
 
@@ -18,12 +18,18 @@ export default function Settings() {
     if (location.pathname.includes("setup-guide")) setActiveSection("setup-guide");
     else if (location.pathname.includes("tax-config")) setActiveSection("tax-config");
     else if (location.pathname.includes("company-details")) setActiveSection("company-details");
+    else if (location.pathname.includes("consent")) setActiveSection("consent");
+    else if (location.pathname.includes("data-management")) setActiveSection("data-management");
+    else if (location.pathname.includes("privacy")) setActiveSection("privacy");
   }, [location.pathname]);
 
   const sections = [
-    { id: "setup-guide", label: "Setup Guide", icon: "📋", path: "/app/settings/setup-guide" },
-    { id: "tax-config", label: "Tax Configuration", icon: "🧮", path: "/app/settings/tax-config" },
     { id: "company-details", label: "Company Details", icon: "🏢", path: "/app/settings/company-details" },
+    { id: "tax-config", label: "Tax Configuration", icon: "🧮", path: "/app/settings/tax-config" },
+    { id: "setup-guide", label: "Setup Guide", icon: "📋", path: "/app/settings/setup-guide" },
+    { id: "consent", label: "Customer Consent", icon: "🤝", path: "/app/settings/consent" },
+    { id: "data-management", label: "Data Management", icon: "🗄️", path: "/app/settings/data-management" },
+    { id: "privacy", label: "Privacy Policy", icon: "🔒", path: "/app/settings/privacy" },
   ];
 
   return (
@@ -77,6 +83,9 @@ export default function Settings() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <span style={{ fontSize: '16px' }}>{section.icon}</span>
                 <span>{section.label}</span>
+                {section.external && (
+                  <span style={{ fontSize: '10px', color: '#9ca3af' }}>↗</span>
+                )}
               </div>
               <span style={{ color: '#9ca3af' }}>›</span>
             </button>

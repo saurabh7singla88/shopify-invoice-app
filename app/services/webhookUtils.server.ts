@@ -436,18 +436,18 @@ export async function generateInvoicePipeline(opts: {
   try {
     const { _gstMeta, ...invoiceDataForLambda } = invoiceData;
 
+    const lambdaEvent = {
+      invoiceData: invoiceDataForLambda,
+      shop,
+      orderId,
+      orderName,
+    };
+
+    console.log("[InvoicePipeline] Invoking Lambda...");
     const invokeParams = {
       FunctionName: process.env.INVOICE_LAMBDA_NAME || "shopify-generate-pdf-invoice",
       InvocationType: "RequestResponse" as const,
-      Payload: Buffer.from(
-        JSON.stringify({
-          invoiceData: invoiceDataForLambda,
-          shop,
-          orderId,
-          orderName,
-        }),
-        "utf8"
-      ),
+      Payload: Buffer.from(JSON.stringify(lambdaEvent), "utf8"),
     };
 
     const lambdaResponse = await lambdaClient.send(new InvokeCommand(invokeParams));
