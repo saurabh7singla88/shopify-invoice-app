@@ -8,9 +8,10 @@ import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useSearchParams, useFetcher, Link } from "react-router";
 import { authenticate } from "../shopify.server";
 import { hasGSTRAccess } from "../utils/billing-helpers";
+import { getShopBillingPlan } from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { billing } = await authenticate.admin(request);
+  const { billing, session } = await authenticate.admin(request);
   
   // Check if user has Basic or higher plan for GSTR reports
   const billingCheck = await billing.check({
@@ -27,7 +28,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     currentPlan = billingCheck.appSubscriptions[0].name;
   }
   
-  const hasAccess = hasGSTRAccess(currentPlan);
+  // Get effective plan with dev overrides
+  const effectivePlan = await getShopBillingPlan(session.shop);
+  const hasAccess = hasGSTRAccess(effectivePlan);
   
   return { timestamp: Date.now(), hasGSTRAccess: hasAccess };
 };

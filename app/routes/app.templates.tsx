@@ -3,6 +3,7 @@ import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { useLoaderData, useNavigate, useSearchParams, Link, Outlet, useSubmit } from "react-router";
 import { authenticate } from "../shopify.server";
 import { hasMultipleTemplates } from "../utils/billing-helpers";
+import { getShopBillingPlan } from "../db.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { getShopSelectedTemplate, updateShopSelectedTemplate } from "../services/dynamodb.server";
 
@@ -38,7 +39,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     currentPlan = billingCheck.appSubscriptions[0].name;
   }
   
-  const hasAccess = hasMultipleTemplates(currentPlan);
+  // Get effective plan with dev overrides
+  const effectivePlan = await getShopBillingPlan(session.shop);
+  const hasAccess = hasMultipleTemplates(effectivePlan);
   
   // Extract URL params for embedded app context
   const url = new URL(request.url);

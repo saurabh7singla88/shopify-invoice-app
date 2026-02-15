@@ -6,6 +6,7 @@ import type {
 import { useLoaderData, useSearchParams, Link } from "react-router";
 import { authenticate } from "../shopify.server";
 import { getOrderLimit, getPlanTier } from "../utils/billing-helpers";
+import { getShopBillingPlan } from "../db.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { QueryCommand } from "@aws-sdk/lib-dynamodb";
 
@@ -35,8 +36,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     currentPlan = subscription.name;
   }
   
-  const orderLimit = getOrderLimit(currentPlan);
-  
   // Update billing plan in Shops table for webhook access
   try {
     await dynamodb.send(new (await import("@aws-sdk/lib-dynamodb")).UpdateCommand({
@@ -51,6 +50,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   } catch (error) {
     console.error("Error updating billing plan in Shops table:", error);
   }
+  
+  // Get effective plan (with dev overrides) and order limit
+  const effectivePlan = await getShopBillingPlan(session.shop);
+  const orderLimit = getOrderLimit(effectivePlan);
   
   // Setup shop in background (non-blocking)
   setupShop(session.shop, session.accessToken, session.scope || "");

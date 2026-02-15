@@ -5,9 +5,10 @@ import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate } from "../shopify.server";
 import { hasPrioritySupport as checkPrioritySupport } from "../utils/billing-helpers";
+import { getShopBillingPlan } from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { billing } = await authenticate.admin(request);
+  const { billing, session } = await authenticate.admin(request);
   
   // Check if user has Advanced plan for Priority Support
   const billingCheck = await billing.check({
@@ -20,7 +21,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     currentPlan = billingCheck.appSubscriptions[0].name;
   }
   
-  const hasPrioritySupport = checkPrioritySupport(currentPlan);
+  // Get effective plan with dev overrides
+  const effectivePlan = await getShopBillingPlan(session.shop);
+  const hasPrioritySupport = checkPrioritySupport(effectivePlan);
   
   // Extract URL params for embedded app context
   const url = new URL(request.url);

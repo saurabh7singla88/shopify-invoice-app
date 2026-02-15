@@ -432,6 +432,42 @@ export async function getShopSelectedTemplate(shop: string): Promise<string> {
 }
 
 /**
+ * Get the effective billing plan for a shop
+ * Applies dev billing overrides automatically based on environment variables
+ */
+export async function getShopBillingPlan(shop: string): Promise<string> {
+  // Parse dev billing configuration
+  const DEV_BILLING_SHOPS = process.env.DEV_BILLING_SHOPS 
+    ? process.env.DEV_BILLING_SHOPS.split(',').map(s => s.trim()) 
+    : [];
+  const ENABLE_DEV_BILLING = process.env.ENABLE_DEV_BILLING === "true";
+  const DEV_BILLING_PLAN = process.env.DEV_BILLING_PLAN || "Advanced Monthly";
+  
+  // Check if dev billing should be applied for this shop
+  const isDevBillingAllowed = ENABLE_DEV_BILLING || DEV_BILLING_SHOPS.includes(shop);
+  
+  // If dev billing is allowed, return the dev plan immediately
+  if (isDevBillingAllowed) {
+    console.log(`[getShopBillingPlan] Dev billing enabled for ${shop}, using plan: ${DEV_BILLING_PLAN}`);
+    return DEV_BILLING_PLAN;
+  }
+  
+  // Otherwise, fetch actual billing plan from database
+  try {
+    const result = await dynamodb.send(new GetCommand({
+      TableName: SHOPS_TABLE,
+      Key: { shop },
+    }));
+    const actualPlan = result.Item?.billingPlan || "Free";
+    console.log(`[getShopBillingPlan] Shop ${shop} using actual plan: ${actualPlan}`);
+    return actualPlan;
+  } catch (error) {
+    console.error(`[Shop] Error fetching billing plan for ${shop}:`, error);
+    return "Free"; // Default fallback
+  }
+}
+
+/**
  * Update the selected template for a shop with isActive flag approach
  */
 export async function updateShopSelectedTemplate(shop: string, templateId: string) {

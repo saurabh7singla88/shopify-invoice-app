@@ -256,31 +256,20 @@ export async function checkShopBillingLimit(shop: string): Promise<{
   orderLimit: number | null;
   ordersThisMonth: number;
 }> {
-  // Import billing helpers
-  let getOrderLimit, getEffectivePlan;
+  // Import billing helpers and dynamodb helpers
+  let getOrderLimit, getShopBillingPlan;
   try {
     const helpers = await import("../utils/billing-helpers");
+    const dbHelpers = await import("../db.server");
     getOrderLimit = helpers.getOrderLimit;
-    getEffectivePlan = helpers.getEffectivePlan;
+    getShopBillingPlan = dbHelpers.getShopBillingPlan;
   } catch (importError) {
-    console.error("Error importing billing helpers:", importError);
+    console.error("Error importing helpers:", importError);
     throw importError;
   }
   
-  // Get shop's current billing plan from Shops table
-  let currentPlan = "Free";
-  try {
-    const shopResult = await dynamodb.send(new GetCommand({
-      TableName: TABLE_NAMES.SHOPS,
-      Key: { shop },
-    }));
-    
-    if (shopResult.Item?.billingPlan) {
-      currentPlan = shopResult.Item.billingPlan;
-    }
-  } catch (error) {
-    console.error("Error fetching shop billing plan:", error);
-  }
+  // Get shop's effective billing plan (with dev overrides applied)
+  const currentPlan = await getShopBillingPlan(shop);
   
   // Get order limit for current plan
   const orderLimit = getOrderLimit(currentPlan);

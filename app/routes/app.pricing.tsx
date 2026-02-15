@@ -7,7 +7,7 @@ import { useState, useEffect } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useActionData, useSubmit } from "react-router";
 import { authenticate } from "../shopify.server";
-import dynamodb from "../db.server";
+import dynamodb, { getShopBillingPlan } from "../db.server";
 import { UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { TABLE_NAMES } from "../constants/tables";
 

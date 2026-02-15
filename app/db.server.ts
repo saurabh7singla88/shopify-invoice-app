@@ -14,3 +14,6 @@ const dynamodb = DynamoDBDocumentClient.from(client, {
 });
 
 export default dynamodb;
+
+// Re-export helper functions
+export { getShopBillingPlan } from "./services/dynamodb.server";
