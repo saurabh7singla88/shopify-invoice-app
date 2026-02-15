@@ -331,7 +331,7 @@ export default function Index() {
     : '';
 
   return (
-    <s-page heading="Invoice Ninja">
+    <s-page heading="Order Dashboard">
       <s-section>
         {error && (
           <s-banner tone="critical">
