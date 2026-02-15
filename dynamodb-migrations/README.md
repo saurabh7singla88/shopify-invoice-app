@@ -137,17 +137,18 @@ This folder contains scripts and templates for setting up DynamoDB tables requir
 - **Primary Key**: `shop` (String) - Shop domain (partition key)
 - **Attributes**:
   - `shop` - Shop domain (e.g., `mystore.myshopify.com`)
-  - `status` - App installation status (e.g., installed, uninstalled, suspended)
+  - `accessToken` - Shopify access token for API calls
+  - `scopes` - Granted permission scopes
+  - `isActive` - Boolean indicating if app is currently installed
+  - `templateId` - Selected invoice template (default: "minimalist")
+  - `billingPlan` - Current Shopify billing plan (e.g., "Free", "Basic Monthly", "Premium Monthly", "Advanced Monthly")
   - `installedAt` - First installation timestamp
-  - `lastActiveAt` - Last activity timestamp
+  - `updatedAt` - Last update timestamp
   - `uninstalledAt` - Uninstallation timestamp (null if currently installed)
-  - `reinstalledAt` - Reinstallation timestamp (if applicable)
-  - `subscriptionStatus` - Subscription status (e.g., active, trial, cancelled, expired)
-  - `subscriptionPlan` - Plan name (e.g., basic, premium)
-  - `shopName` - Store display name
-  - `shopEmail` - Store contact email
-  - `currency` - Default currency code
-  - `country` - Store country
+  - `configurations` - JSON object with shop-wide settings
+    - `companyDetails` - Company information (GSTIN, address, etc.)
+    - `multiWarehouseGST` - Boolean for multi-warehouse GST support
+    - `taxCalculationMethod` - "app" or "shopify"
   - `timezone` - Store timezone
   - `features` - JSON object with enabled features/flags
   - `settings` - JSON object with shop-specific app settings

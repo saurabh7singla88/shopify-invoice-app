@@ -7,9 +7,12 @@ import { useState, useEffect } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useActionData, useSubmit } from "react-router";
 import { authenticate } from "../shopify.server";
+import dynamodb from "../db.server";
+import { UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { TABLE_NAMES } from "../constants/tables";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { billing } = await authenticate.admin(request);
+  const { billing, session } = await authenticate.admin(request);
 
   // Check current subscription status
   const billingCheck = await billing.check({
@@ -34,6 +37,21 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     };
   }
 
+  // Update billing plan in Shops table
+  try {
+    await dynamodb.send(new UpdateCommand({
+      TableName: TABLE_NAMES.SHOPS,
+      Key: { shop: session.shop },
+      UpdateExpression: "SET billingPlan = :plan, updatedAt = :now",
+      ExpressionAttributeValues: {
+        ":plan": currentPlan,
+        ":now": Date.now(),
+      },
+    }));
+  } catch (error) {
+    console.error("Error updating billing plan in Shops table:", error);
+  }
+
   return { currentPlan, currentPlanDetails };
 };
 
@@ -48,6 +66,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   try {
     // Request billing approval from Shopify
+    // Note: Billing API only works in production or with approved public apps
     const confirmationUrl = await billing.request({
       plan,
       isTest: process.env.NODE_ENV !== "production",
@@ -58,7 +77,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { confirmationUrl };
   } catch (error) {
     console.error("[Billing] Error requesting subscription:", error);
-    return { error: "Failed to initiate billing" };
+    return { 
+      error: "Billing API not available in development mode. The billing API only works for published apps.",
+    };
   }
 };
 
@@ -74,6 +95,12 @@ export default function Pricing() {
       window.open(actionData.confirmationUrl, "_top");
     }
   }, [actionData]);
+
+  const handleSelectPlan = (planName: string) => {
+    const formData = new FormData();
+    formData.append('plan', planName);
+    submit(formData, { method: "post" });
+  };
 
   const plans = [
     {
@@ -163,10 +190,6 @@ export default function Pricing() {
       },
     },
   ];
-
-  const handleSelectPlan = (planName: string) => {
-    submit({ plan: planName }, { method: "post" });
-  };
 
   const isCurrentPlan = (planName?: string) => {
     if (!planName) return currentPlan === "Free";

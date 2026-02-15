@@ -20,18 +20,45 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.error("Error loading template config:", error);
   }
   
+  // Template-specific defaults
+  const templateDefaults = {
+    minimalist: {
+      primaryColor: "#333333",
+      documentHeaderBgColor: "#333333",
+      tableHeaderBgColor: "#333333",
+      headerTextColor: "#ffffff",
+      titleFontSize: 28,
+      headingFontSize: 16,
+      bodyFontSize: 11,
+      itemTableFontSize: 8,
+    },
+    zen: {
+      primaryColor: "#6366f1",
+      documentHeaderBgColor: "#6366f1",
+      tableHeaderBgColor: "#6366f1",
+      headerTextColor: "#ffffff",
+      titleFontSize: 32,
+      headingFontSize: 18,
+      bodyFontSize: 11,
+      itemTableFontSize: 8,
+    }
+  };
+  
+  const defaults = templateDefaults[templateId as keyof typeof templateDefaults] || templateDefaults.minimalist;
+  
   // Configuration based on lambda-generate-invoice .env structure
   const configuration = {
     // Fonts and Colors
     styling: {
-      primaryColor: { label: "Primary Color", type: "color", default: existingConfig?.styling?.primaryColor || "#333333", envVar: "INVOICE_PRIMARY_COLOR" },
-      headerBackgroundColor: { label: "Header Background Color", type: "color", default: existingConfig?.styling?.headerBackgroundColor || "#333333", envVar: "INVOICE_HEADER_BG_COLOR" },
-      headerTextColor: { label: "Header Text Color", type: "color", default: existingConfig?.styling?.headerTextColor || "#ffffff", envVar: "INVOICE_HEADER_TEXT_COLOR" },
+      primaryColor: { label: "Primary Color", type: "color", default: existingConfig?.styling?.primaryColor || defaults.primaryColor, envVar: "INVOICE_PRIMARY_COLOR" },
+      documentHeaderBgColor: { label: "Document Header Background", type: "color", default: existingConfig?.styling?.documentHeaderBgColor || defaults.documentHeaderBgColor, envVar: "INVOICE_DOCUMENT_HEADER_BG_COLOR" },
+      tableHeaderBgColor: { label: "Table Header Background", type: "color", default: existingConfig?.styling?.tableHeaderBgColor || defaults.tableHeaderBgColor, envVar: "INVOICE_TABLE_HEADER_BG_COLOR" },
+      headerTextColor: { label: "Header Text Color", type: "color", default: existingConfig?.styling?.headerTextColor || defaults.headerTextColor, envVar: "INVOICE_HEADER_TEXT_COLOR" },
       fontFamily: { label: "Font Family", type: "select", default: existingConfig?.styling?.fontFamily || "Helvetica", options: ["Helvetica", "Courier", "Times-Roman"], envVar: "INVOICE_FONT_FAMILY" },
-      titleFontSize: { label: "Title Font Size", type: "number", default: existingConfig?.styling?.titleFontSize || 28, min: 20, max: 40, envVar: "INVOICE_TITLE_FONT_SIZE" },
-      headingFontSize: { label: "Heading Font Size", type: "number", default: existingConfig?.styling?.headingFontSize || 16, min: 12, max: 24, envVar: "INVOICE_HEADING_FONT_SIZE" },
-      bodyFontSize: { label: "Body Font Size", type: "number", default: existingConfig?.styling?.bodyFontSize || 11, min: 8, max: 16, envVar: "INVOICE_BODY_FONT_SIZE" },
-      itemTableFontSize: { label: "Item Table Font Size", type: "number", default: existingConfig?.styling?.itemTableFontSize || 8, min: 6, max: 12, envVar: "INVOICE_TABLE_FONT_SIZE" },
+      titleFontSize: { label: "Title Font Size", type: "number", default: existingConfig?.styling?.titleFontSize || defaults.titleFontSize, min: 20, max: 40, envVar: "INVOICE_TITLE_FONT_SIZE" },
+      headingFontSize: { label: "Heading Font Size", type: "number", default: existingConfig?.styling?.headingFontSize || defaults.headingFontSize, min: 12, max: 24, envVar: "INVOICE_HEADING_FONT_SIZE" },
+      bodyFontSize: { label: "Body Font Size", type: "number", default: existingConfig?.styling?.bodyFontSize || defaults.bodyFontSize, min: 8, max: 16, envVar: "INVOICE_BODY_FONT_SIZE" },
+      itemTableFontSize: { label: "Item Table Font Size", type: "number", default: existingConfig?.styling?.itemTableFontSize || defaults.itemTableFontSize, min: 6, max: 12, envVar: "INVOICE_TABLE_FONT_SIZE" },
     },
   };
   
@@ -44,6 +71,30 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   
   const formData = await request.formData();
   const templateId = formData.get("templateId") as string || "minimalist";
+  
+  // Template-specific defaults
+  const templateDefaults = {
+    minimalist: {
+      primaryColor: "#333333",
+      headerBackgroundColor: "#333333",
+      headerTextColor: "#ffffff",
+      titleFontSize: 28,
+      headingFontSize: 16,
+      bodyFontSize: 11,
+      itemTableFontSize: 8,
+    },
+    zen: {
+      primaryColor: "#6366f1",
+      headerBackgroundColor: "#6366f1",
+      headerTextColor: "#ffffff",
+      titleFontSize: 32,
+      headingFontSize: 18,
+      bodyFontSize: 11,
+      itemTableFontSize: 8,
+    }
+  };
+  
+  const defaults = templateDefaults[templateId as keyof typeof templateDefaults] || templateDefaults.minimalist;
   
   // Get existing configuration first to preserve values not in current form
   let existingConfig = await getTemplateConfiguration(shop, templateId);
@@ -61,14 +112,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   
   // Parse form data into configuration structure - only update fields that are present
   const styling = {
-    primaryColor: getFormValue("styling.primaryColor", existingConfig.styling?.primaryColor || "#333333"),
-    headerBackgroundColor: getFormValue("styling.headerBackgroundColor", existingConfig.styling?.headerBackgroundColor || "#333333"),
-    headerTextColor: getFormValue("styling.headerTextColor", existingConfig.styling?.headerTextColor || "#ffffff"),
+    primaryColor: getFormValue("styling.primaryColor", existingConfig.styling?.primaryColor || defaults.primaryColor),
+    documentHeaderBgColor: getFormValue("styling.documentHeaderBgColor", existingConfig.styling?.documentHeaderBgColor || defaults.documentHeaderBgColor),
+    tableHeaderBgColor: getFormValue("styling.tableHeaderBgColor", existingConfig.styling?.tableHeaderBgColor || defaults.tableHeaderBgColor),
+    headerTextColor: getFormValue("styling.headerTextColor", existingConfig.styling?.headerTextColor || defaults.headerTextColor),
     fontFamily: getFormValue("styling.fontFamily", existingConfig.styling?.fontFamily || "Helvetica"),
-    titleFontSize: formData.get("styling.titleFontSize") ? parseInt(formData.get("styling.titleFontSize") as string) : (existingConfig.styling?.titleFontSize || 28),
-    headingFontSize: formData.get("styling.headingFontSize") ? parseInt(formData.get("styling.headingFontSize") as string) : (existingConfig.styling?.headingFontSize || 16),
-    bodyFontSize: formData.get("styling.bodyFontSize") ? parseInt(formData.get("styling.bodyFontSize") as string) : (existingConfig.styling?.bodyFontSize || 11),
-    itemTableFontSize: formData.get("styling.itemTableFontSize") ? parseInt(formData.get("styling.itemTableFontSize") as string) : (existingConfig.styling?.itemTableFontSize || 8),
+    titleFontSize: formData.get("styling.titleFontSize") ? parseInt(formData.get("styling.titleFontSize") as string) : (existingConfig.styling?.titleFontSize || defaults.titleFontSize),
+    headingFontSize: formData.get("styling.headingFontSize") ? parseInt(formData.get("styling.headingFontSize") as string) : (existingConfig.styling?.headingFontSize || defaults.headingFontSize),
+    bodyFontSize: formData.get("styling.bodyFontSize") ? parseInt(formData.get("styling.bodyFontSize") as string) : (existingConfig.styling?.bodyFontSize || defaults.bodyFontSize),
+    itemTableFontSize: formData.get("styling.itemTableFontSize") ? parseInt(formData.get("styling.itemTableFontSize") as string) : (existingConfig.styling?.itemTableFontSize || defaults.itemTableFontSize),
   };
   
   // Keep existing company details unchanged (now stored in Shops table)
@@ -93,6 +145,24 @@ export default function CustomizeTemplate() {
   const [activeSection, setActiveSection] = useState("styling");
   const [showNotification, setShowNotification] = useState(false);
   
+  // Live preview state - track all styling values
+  const [livePreview, setLivePreview] = useState({
+    primaryColor: configuration.styling.primaryColor.default,
+    documentHeaderBgColor: configuration.styling.documentHeaderBgColor.default,
+    tableHeaderBgColor: configuration.styling.tableHeaderBgColor.default,
+    headerTextColor: configuration.styling.headerTextColor.default,
+    fontFamily: configuration.styling.fontFamily.default,
+    titleFontSize: configuration.styling.titleFontSize.default,
+    headingFontSize: configuration.styling.headingFontSize.default,
+    bodyFontSize: configuration.styling.bodyFontSize.default,
+    itemTableFontSize: configuration.styling.itemTableFontSize.default,
+  });
+  
+  // Update live preview when input changes
+  const handlePreviewChange = (key: string, value: string | number) => {
+    setLivePreview(prev => ({ ...prev, [key]: value }));
+  };
+  
   // Show notification after successful save
   useEffect(() => {
     if (actionData?.success) {
@@ -107,6 +177,348 @@ export default function CustomizeTemplate() {
   ];
 
   const isSubmitting = navigation.state === "submitting";
+  
+  // SVG Preview Component
+  const InvoicePreview = () => {
+    const fontFamilyMap: { [key: string]: string } = {
+      'Helvetica': 'Arial, sans-serif',
+      'Courier': 'Courier New, monospace',
+      'Times-Roman': 'Times New Roman, serif'
+    };
+    
+    const currentFont = fontFamilyMap[livePreview.fontFamily as string] || 'Arial, sans-serif';
+    
+    return (
+      <div style={{ 
+        width: '100%',
+        maxWidth: '600px',
+        backgroundColor: 'white',
+        border: '1px solid #e5e7eb',
+        borderRadius: '8px',
+        padding: '16px'
+      }}>
+        <div style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
+          <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151' }}>Live Preview</h3>
+          <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
+            Changes update in real-time
+          </p>
+        </div>
+        
+        <svg viewBox="0 0 595 842" style={{ width: '100%', height: 'auto', border: '1px solid #e5e7eb', borderRadius: '4px' }}>
+          {/* Colorful gradient header bar */}
+          <rect x="0" y="0" width="595" height="140" fill={livePreview.documentHeaderBgColor as string} />
+          
+          {/* Decorative accent bar at bottom of header */}
+          <rect x="0" y="136" width="595" height="4" fill={livePreview.primaryColor as string} />
+          
+          {/* Company name in white on gradient */}
+          <text 
+            x="50" 
+            y="45" 
+            fill={livePreview.headerTextColor as string}
+            fontSize={livePreview.titleFontSize}
+            fontFamily={currentFont}
+            fontWeight="bold"
+          >
+            Your Company Name
+          </text>
+          <text 
+            x="50" 
+            y="70" 
+            fill="rgba(255, 255, 255, 0.95)"
+            fontSize={livePreview.bodyFontSize}
+            fontFamily={currentFont}
+          >
+            123 Business Street
+          </text>
+          <text 
+            x="50" 
+            y="85" 
+            fill="rgba(255, 255, 255, 0.95)"
+            fontSize={livePreview.bodyFontSize}
+            fontFamily={currentFont}
+          >
+            City, State 123456
+          </text>
+          <text 
+            x="50" 
+            y="100" 
+            fill="rgba(255, 255, 255, 0.9)"
+            fontSize={livePreview.bodyFontSize}
+            fontFamily={currentFont}
+          >
+            GSTIN: 29ABCDE1234F1Z5
+          </text>
+          
+          {/* INVOICE label with colored background box */}
+          <rect x="410" y="25" width="135" height="35" fill={livePreview.primaryColor as string} rx="4" />
+          <text 
+            x="477" 
+            y="49" 
+            fill="#ffffff"
+            fontSize="20"
+            fontFamily={currentFont}
+            fontWeight="bold"
+            textAnchor="middle"
+          >
+            INVOICE
+          </text>
+          
+          {/* Invoice details section */}
+          <text 
+            x="50" 
+            y="175" 
+            fill={livePreview.primaryColor as string}
+            fontSize={livePreview.bodyFontSize}
+            fontFamily={currentFont}
+            fontWeight="bold"
+          >
+            Invoice Number:
+          </text>
+          <text 
+            x="50" 
+            y="190" 
+            fill="#111827"
+            fontSize={livePreview.bodyFontSize}
+            fontFamily={currentFont}
+          >
+            INV-2024-001
+          </text>
+          
+          <text 
+            x="50" 
+            y="210" 
+            fill={livePreview.primaryColor as string}
+            fontSize={livePreview.bodyFontSize}
+            fontFamily={currentFont}
+            fontWeight="bold"
+          >
+            Invoice Date:
+          </text>
+          <text 
+            x="50" 
+            y="225" 
+            fill="#111827"
+            fontSize={livePreview.bodyFontSize}
+            fontFamily={currentFont}
+          >
+            Feb 15, 2026
+          </text>
+          
+          {/* Customer details box with subtle background */}
+          <rect x="300" y="165" width="245" height="95" fill="#f9fafb" stroke="#e5e7eb" strokeWidth="1" rx="4" />
+          <text 
+            x="310" 
+            y="182" 
+            fill={livePreview.primaryColor as string}
+            fontSize={Number(livePreview.bodyFontSize) + 1}
+            fontFamily={currentFont}
+            fontWeight="bold"
+          >
+            Bill To:
+          </text>
+          <text 
+            x="310" 
+            y="200" 
+            fill="#111827"
+            fontSize={livePreview.bodyFontSize}
+            fontFamily={currentFont}
+            fontWeight="bold"
+          >
+            Customer Name
+          </text>
+          <text 
+            x="310" 
+            y="215" 
+            fill="#374151"
+            fontSize={Number(livePreview.bodyFontSize) - 1}
+            fontFamily={currentFont}
+          >
+            456 Customer Ave
+          </text>
+          <text 
+            x="310" 
+            y="230" 
+            fill="#374151"
+            fontSize={Number(livePreview.bodyFontSize) - 1}
+            fontFamily={currentFont}
+          >
+            City, State 12345
+          </text>
+          <text 
+            x="310" 
+            y="245" 
+            fill="#374151"
+            fontSize={Number(livePreview.bodyFontSize) - 1}
+            fontFamily={currentFont}
+          >
+            Phone: +91 9876543210
+          </text>
+          
+          {/* Section heading with decorative line */}
+          <text 
+            x="50" 
+            y="290" 
+            fill={livePreview.primaryColor as string}
+            fontSize={livePreview.headingFontSize}
+            fontFamily={currentFont}
+            fontWeight="bold"
+          >
+            Order Items
+          </text>
+          <line x1="50" y1="305" x2="545" y2="305" stroke={livePreview.primaryColor as string} strokeWidth="2" />
+          
+          {/* Line Items Header with rounded corners */}
+          <rect x="50" y="320" width="495" height="35" fill={livePreview.tableHeaderBgColor as string} rx="4" />
+          <text 
+            x="55" 
+            y="342" 
+            fill={livePreview.headerTextColor as string}
+            fontSize={livePreview.itemTableFontSize}
+            fontFamily={currentFont}
+            fontWeight="bold"
+          >
+            ITEM
+          </text>
+          <text 
+            x="160" 
+            y="342" 
+            fill={livePreview.headerTextColor as string}
+            fontSize={livePreview.itemTableFontSize}
+            fontFamily={currentFont}
+            fontWeight="bold"
+            textAnchor="middle"
+          >
+            QTY
+          </text>
+          <text 
+            x="223" 
+            y="342" 
+            fill={livePreview.headerTextColor as string}
+            fontSize={livePreview.itemTableFontSize}
+            fontFamily={currentFont}
+            fontWeight="bold"
+            textAnchor="end"
+          >
+            RATE
+          </text>
+          <text 
+            x="323" 
+            y="342" 
+            fill={livePreview.headerTextColor as string}
+            fontSize={livePreview.itemTableFontSize}
+            fontFamily={currentFont}
+            fontWeight="bold"
+            textAnchor="end"
+          >
+            TAX
+          </text>
+          <text 
+            x="535" 
+            y="342" 
+            fill={livePreview.headerTextColor as string}
+            fontSize={livePreview.itemTableFontSize}
+            fontFamily={currentFont}
+            fontWeight="bold"
+            textAnchor="end"
+          >
+            AMOUNT
+          </text>
+          
+          {/* Sample Line Items with alternating background */}
+          <rect x="50" y="355" width="495" height="40" fill="#faf5ff" />
+          <text x="55" y="378" fill="#111827" fontSize={Number(livePreview.itemTableFontSize) - 0.5} fontFamily={currentFont}>
+            Premium Product
+          </text>
+          <text x="160" y="378" fill="#111827" fontSize={Number(livePreview.itemTableFontSize) - 0.5} fontFamily={currentFont} textAnchor="middle">
+            2
+          </text>
+          <text x="223" y="378" fill="#111827" fontSize={Number(livePreview.itemTableFontSize) - 0.5} fontFamily={currentFont} textAnchor="end">
+            ₹1,000
+          </text>
+          <text x="323" y="378" fill="#111827" fontSize={Number(livePreview.itemTableFontSize) - 0.5} fontFamily={currentFont} textAnchor="end">
+            ₹360
+          </text>
+          <text x="535" y="378" fill="#111827" fontSize={Number(livePreview.itemTableFontSize) - 0.5} fontFamily={currentFont} textAnchor="end">
+            ₹2,360
+          </text>
+          
+          <text x="55" y="418" fill="#111827" fontSize={Number(livePreview.itemTableFontSize) - 0.5} fontFamily={currentFont}>
+            Standard Service
+          </text>
+          <text x="160" y="418" fill="#111827" fontSize={Number(livePreview.itemTableFontSize) - 0.5} fontFamily={currentFont} textAnchor="middle">
+            1
+          </text>
+          <text x="223" y="418" fill="#111827" fontSize={Number(livePreview.itemTableFontSize) - 0.5} fontFamily={currentFont} textAnchor="end">
+            ₹500
+          </text>
+          <text x="323" y="418" fill="#111827" fontSize={Number(livePreview.itemTableFontSize) - 0.5} fontFamily={currentFont} textAnchor="end">
+            ₹90
+          </text>
+          <text x="535" y="418" fill="#111827" fontSize={Number(livePreview.itemTableFontSize) - 0.5} fontFamily={currentFont} textAnchor="end">
+            ₹590
+          </text>
+          
+          {/* Divider */}
+          <line x1="50" y1="445" x2="545" y2="445" stroke="#e5e7eb" strokeWidth="1" />
+          
+          {/* Totals Section with colorful box */}
+          <rect x="380" y="465" width="165" height="110" fill="#f9fafb" stroke="#e5e7eb" strokeWidth="1" rx="4" />
+          
+          <text x="390" y="485" fill="#6b7280" fontSize={livePreview.bodyFontSize} fontFamily={currentFont}>
+            Subtotal:
+          </text>
+          <text x="535" y="485" fill="#111827" fontSize={livePreview.bodyFontSize} fontFamily={currentFont} textAnchor="end">
+            ₹2,500
+          </text>
+          
+          <text x="390" y="505" fill="#6b7280" fontSize={livePreview.bodyFontSize} fontFamily={currentFont}>
+            CGST (9%):
+          </text>
+          <text x="535" y="505" fill="#111827" fontSize={livePreview.bodyFontSize} fontFamily={currentFont} textAnchor="end">
+            ₹225
+          </text>
+          
+          <text x="390" y="525" fill="#6b7280" fontSize={livePreview.bodyFontSize} fontFamily={currentFont}>
+            SGST (9%):
+          </text>
+          <text x="535" y="525" fill="#111827" fontSize={livePreview.bodyFontSize} fontFamily={currentFont} textAnchor="end">
+            ₹225
+          </text>
+          
+          {/* Total with vibrant colored background */}
+          <rect x="380" y="540" width="165" height="35" fill={livePreview.tableHeaderBgColor as string} rx="4" />
+          <text 
+            x="390" 
+            y="563" 
+            fill={livePreview.headerTextColor as string}
+            fontSize={livePreview.headingFontSize}
+            fontFamily={currentFont}
+            fontWeight="bold"
+          >
+            Total:
+          </text>
+          <text 
+            x="535" 
+            y="563" 
+            fill={livePreview.headerTextColor as string}
+            fontSize={livePreview.headingFontSize}
+            fontFamily={currentFont}
+            fontWeight="bold"
+            textAnchor="end"
+          >
+            ₹2,950
+          </text>
+          
+          {/* Footer Note with decorative element */}
+          <line x1="50" y1="610" x2="150" y2="610" stroke={livePreview.primaryColor as string} strokeWidth="2" />
+          <text x="50" y="635" fill="#9ca3af" fontSize={Number(livePreview.bodyFontSize) - 1} fontFamily={currentFont}>
+            Thank you for your business!
+          </text>
+        </svg>
+      </div>
+    );
+  };
 
   const renderFormField = (key: string, config: any, section: string) => {
     const fieldName = `${section}.${key}`;
@@ -135,6 +547,7 @@ export default function CustomizeTemplate() {
                 if (textInput) {
                   textInput.value = e.target.value;
                 }
+                handlePreviewChange(key, e.target.value);
               }}
               style={{
                 width: '60px',
@@ -153,6 +566,7 @@ export default function CustomizeTemplate() {
                 const colorInput = document.getElementById(colorPickerId) as HTMLInputElement;
                 if (colorInput && /^#[0-9A-F]{6}$/i.test(e.target.value)) {
                   colorInput.value = e.target.value;
+                  handlePreviewChange(key, e.target.value);
                 }
               }}
               style={{ ...commonStyle, width: '140px' }}
@@ -163,7 +577,12 @@ export default function CustomizeTemplate() {
       
       case "select":
         return (
-          <select name={fieldName} defaultValue={config.default} style={{ ...commonStyle, cursor: 'pointer' }}>
+          <select 
+            name={fieldName} 
+            defaultValue={config.default} 
+            onChange={(e) => handlePreviewChange(key, e.target.value)}
+            style={{ ...commonStyle, cursor: 'pointer' }}
+          >
             {!config.default && <option value="">Select {config.label}</option>}
             {config.options?.map((option: string) => (
               <option key={option} value={option}>{option}</option>
@@ -180,6 +599,7 @@ export default function CustomizeTemplate() {
               defaultValue={config.default}
               min={config.min}
               max={config.max}
+              onChange={(e) => handlePreviewChange(key, parseInt(e.target.value) || config.default)}
               style={{ ...commonStyle, width: '100px' }}
             />
             <input
@@ -187,6 +607,13 @@ export default function CustomizeTemplate() {
               defaultValue={config.default}
               min={config.min}
               max={config.max}
+              onChange={(e) => {
+                const numberInput = document.querySelector(`input[name="${fieldName}"]`) as HTMLInputElement;
+                if (numberInput) {
+                  numberInput.value = e.target.value;
+                }
+                handlePreviewChange(key, parseInt(e.target.value));
+              }}
               style={{ flex: 1 }}
             />
             <span style={{ fontSize: '12px', color: '#6b7280', width: '80px' }}>
@@ -372,54 +799,14 @@ export default function CustomizeTemplate() {
 
       {/* Main Content */}
       <div style={{ display: 'flex', gap: '24px', minHeight: '600px' }}>
-        {/* Left Sidebar - Sections */}
+        {/* Left - Configuration Form (25%) */}
         <div style={{ 
-          width: '280px', 
+          flex: '0 0 25%',
           backgroundColor: 'white',
           border: '1px solid #e5e7eb',
           borderRadius: '8px',
-          padding: '16px',
-          height: 'fit-content'
-        }}>
-          <h2 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '16px', color: '#6b7280', textTransform: 'uppercase' }}>Customize</h2>
-          {sections.map((section) => (
-            <button
-              key={section.id}
-              onClick={() => setActiveSection(section.id)}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '12px 16px',
-                backgroundColor: activeSection === section.id ? '#f3f4f6' : 'transparent',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                marginBottom: '4px',
-                fontSize: '14px',
-                color: activeSection === section.id ? '#1f2937' : '#6b7280',
-                fontWeight: activeSection === section.id ? '500' : '400',
-                textAlign: 'left',
-                transition: 'all 0.2s'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span style={{ fontSize: '16px' }}>{section.icon}</span>
-                <span>{section.label}</span>
-              </div>
-              <span style={{ color: '#9ca3af' }}>›</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Right Side - Configuration Form */}
-        <div style={{ 
-          flex: 1, 
-          backgroundColor: 'white',
-          border: '1px solid #e5e7eb',
-          borderRadius: '8px',
-          padding: '24px'
+          padding: '24px',
+          minWidth: '300px'
         }}>
           <Form method="post" id="customize-form" encType="multipart/form-data">
             <input type="hidden" name="templateId" value={templateId} />
@@ -450,6 +837,11 @@ export default function CustomizeTemplate() {
               ))}
             </div>
           </Form>
+        </div>
+        
+        {/* Right - Live Preview (75%) */}
+        <div style={{ flex: '0 0 calc(75% - 24px)', display: 'flex', justifyContent: 'center' }}>
+          <InvoicePreview />
         </div>
       </div>
     </s-page>
