@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { logAuditEvent } from "../services/dynamodb.server";
+import { archiveWebhookPayload } from "../services/s3.server";
 
 /**
  * GDPR Compliance Webhook: customers/redact
@@ -15,6 +16,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   console.log(`[customers/redact] Received for shop: ${shop}`);
   console.log(`[customers/redact] Payload:`, JSON.stringify(payload, null, 2));
+
+  // Archive webhook payload to S3 (data loss prevention)
+  await archiveWebhookPayload(shop, "customers/redact", payload);
 
   try {
     const { customer, orders_to_redact } = payload as {

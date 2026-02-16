@@ -14,6 +14,7 @@ import {
   jsonResponse,
   errorResponse,
 } from "../services/webhookUtils.server";
+import { archiveWebhookPayload } from "../services/s3.server";
 
 const TABLE_NAME = TABLE_NAMES.ORDERS;
 
@@ -30,11 +31,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // ── Parse webhook context ────────────────────────────────────────────
     const { payload, topic, shop } = parseWebhookContext(request, rawBody, "orders/updated");
 
+    // ── Archive webhook payload to S3 (data loss prevention) ─────────────
+    await archiveWebhookPayload(shop, topic, payload, payload.name);
+
     const orderName = payload.name;
     const paymentStatus = payload.financial_status || (payload as any).paymentStatus;
 
     console.log(`Webhook authenticated - Topic: ${topic}, Shop: ${shop}`);
     console.log(`Order: ${orderName}, Payment Status: ${paymentStatus}`);
+    
+    // Log address details specifically
+    console.log(`[ADDRESS DEBUG] shipping_address:`, JSON.stringify(payload.shipping_address, null, 2));
+    console.log(`[ADDRESS DEBUG] billing_address:`, JSON.stringify(payload.billing_address, null, 2));
+    console.log(`[ADDRESS DEBUG] customer:`, JSON.stringify(payload.customer, null, 2));
     
     // ── Exchange Detection: Check for returns array ──────────────────────
     const hasReturns = payload.returns && Array.isArray(payload.returns) && payload.returns.length > 0;

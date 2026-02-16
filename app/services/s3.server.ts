@@ -48,3 +48,64 @@ function getContentType(extension: string): string {
   };
   return types[extension] || 'application/octet-stream';
 }
+
+/**
+ * Archive webhook payload to S3 for data loss prevention
+ * Stores in: shops/{shop}/webhook_requests/{year}/{month}/{day}/{topic}/{orderId}-{orderName}-{timestamp}.json
+ * 
+ * Date-based folder structure for easy archival and cleanup.
+ * Includes timestamp to preserve historical changes (multiple updates to same order).
+ * 
+ * @param shop - Shop domain
+ * @param topic - Webhook topic (e.g., "orders/create")
+ * @param payload - Webhook payload object
+ * @param orderName - Optional order name for filename
+ * @returns S3 key/path
+ */
+export async function archiveWebhookPayload(
+  shop: string,
+  topic: string,
+  payload: any,
+  orderName?: string
+): Promise<string> {
+  try {
+    const sanitizedShop = shop.replace(/[^a-zA-Z0-9-]/g, '-');
+    const sanitizedTopic = topic.replace(/\//g, '-'); // orders/create -> orders-create
+    
+    // Date-based folder structure
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    
+    // Use order ID + timestamp for uniqueness (preserves all webhook events)
+    const orderId = payload.id || payload.order_id || payload.shop_id || 'unknown';
+    const timestamp = now.toISOString().replace(/[:.]/g, '-');
+    const orderSuffix = orderName ? `-${orderName.replace('#', '')}` : '';
+    
+    const key = `shops/${sanitizedShop}/webhook_requests/${year}/${month}/${day}/${sanitizedTopic}/${orderId}${orderSuffix}-${timestamp}.json`;
+    
+    const uploadParams = {
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: JSON.stringify(payload, null, 2),
+      ContentType: 'application/json',
+      Metadata: {
+        'shop': shop,
+        'topic': topic,
+        'order-id': String(orderId),
+        'archived-at': timestamp,
+        'archive-date': `${year}-${month}-${day}`,
+      },
+    };
+    
+    await s3Client.send(new PutObjectCommand(uploadParams));
+    console.log(`[Webhook Archive] ✅ Archived to S3: ${key}`);
+    
+    return key;
+  } catch (error) {
+    console.error(`[Webhook Archive] ❌ Failed to archive:`, error);
+    // CRITICAL: Never throw - webhook processing must continue even if S3 fails
+    return '';
+  }
+}

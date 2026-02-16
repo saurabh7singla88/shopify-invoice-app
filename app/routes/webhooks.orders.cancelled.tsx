@@ -10,6 +10,7 @@ import {
   jsonResponse,
   errorResponse,
 } from "../services/webhookUtils.server";
+import { archiveWebhookPayload } from "../services/s3.server";
 
 const TABLE_NAME = TABLE_NAMES.ORDERS;
 
@@ -25,6 +26,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     // ── Parse webhook context ────────────────────────────────────────────
     const { payload, topic, shop } = parseWebhookContext(request, rawBody, "orders/cancelled");
+
+    // ── Archive webhook payload to S3 (data loss prevention) ─────────────
+    await archiveWebhookPayload(shop, topic, payload, payload.name);
 
     const orderName = payload.name;
     

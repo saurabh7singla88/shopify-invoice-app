@@ -54,44 +54,78 @@ export interface InvoiceGenerationResult {
 
 /**
  * Validates Shopify webhook HMAC signature.
- * Checks against both SHOPIFY_API_SECRET and SHOPIFY_WEBHOOK_SECRET.
+ * Checks against all SHOPIFY_API_SECRET* environment variables.
+ * Supports multiple secrets for zero-downtime rotation (SHOPIFY_API_SECRET, SHOPIFY_API_SECRET_1, etc.)
  *
  * @returns null if valid, or a 401 Response if invalid
  */
 export function validateWebhookHmac(request: Request, rawBody: string): Response | null {
-  const receivedHmac = request.headers.get("x-shopify-hmac-sha256") || "";
-  const appSecret = process.env.SHOPIFY_API_SECRET || "";
-  const webhookSecret = process.env.SHOPIFY_WEBHOOK_SECRET || "";
-
-  const computeHmac = (secret: string) =>
-    secret
-      ? createHmac("sha256", secret).update(rawBody, "utf8").digest("base64")
-      : "";
-
-  const appHmac = computeHmac(appSecret);
-  const webhookHmac = computeHmac(webhookSecret);
-
-  const hmacMatch = (expected: string, actual: string) => {
-    if (!expected || !actual) return false;
-    try {
-      const expectedBuf = Buffer.from(expected, "utf8");
-      const actualBuf = Buffer.from(actual, "utf8");
-      if (expectedBuf.length !== actualBuf.length) return false;
-      return timingSafeEqual(expectedBuf, actualBuf);
-    } catch {
-      return false;
-    }
-  };
-
-  const appHmacOk = hmacMatch(receivedHmac, appHmac);
-  const webhookHmacOk = hmacMatch(receivedHmac, webhookHmac);
-
-  if (!appHmacOk && !webhookHmacOk) {
-    console.error("HMAC validation failed. Rejecting webhook.");
+  const receivedHmac = request.headers.get("x-shopify-hmac-sha256");
+  
+  console.log(`[HMAC] Starting validation...`);
+  console.log(`[HMAC] Received HMAC: ${receivedHmac?.substring(0, 20)}...`);
+  console.log(`[HMAC] Request body length: ${rawBody.length} bytes`);
+  
+  if (!receivedHmac) {
+    console.error("[HMAC] ❌ FAILED: No x-shopify-hmac-sha256 header");
     return new Response("Unauthorized", { status: 401 });
   }
 
-  return null; // Valid
+  // Collect all SHOPIFY_API_SECRET* env vars with their names
+  const secrets: Array<{ name: string; value: string }> = [];
+  if (process.env.SHOPIFY_API_SECRET) {
+    secrets.push({ name: "SHOPIFY_API_SECRET", value: process.env.SHOPIFY_API_SECRET });
+    console.log(`[HMAC] Found SHOPIFY_API_SECRET (${process.env.SHOPIFY_API_SECRET.substring(0, 8)}...)`);
+  }
+  
+  // Check for numbered secrets (SHOPIFY_API_SECRET_1, SHOPIFY_API_SECRET_2, etc.)
+  Object.keys(process.env).forEach((key) => {
+    if (key.startsWith("SHOPIFY_API_SECRET_") && process.env[key]) {
+      secrets.push({ name: key, value: process.env[key]! });
+      console.log(`[HMAC] Found ${key} (${process.env[key]!.substring(0, 8)}...)`);
+    }
+  });
+
+  console.log(`[HMAC] Total secrets to check: ${secrets.length}`);
+
+  if (secrets.length === 0) {
+    console.error("[HMAC] ❌ FAILED: No SHOPIFY_API_SECRET configured in environment");
+    return new Response("Server misconfigured", { status: 500 });
+  }
+
+  // Try validating against each secret
+  for (let i = 0; i < secrets.length; i++) {
+    const { name: secretName, value: secret } = secrets[i];
+    
+    console.log(`[HMAC] Attempting validation with ${secretName}...`);
+    
+    const computedHmac = createHmac("sha256", secret)
+      .update(rawBody, "utf8")
+      .digest("base64");
+    
+    console.log(`[HMAC] Computed HMAC: ${computedHmac.substring(0, 20)}...`);
+
+    try {
+      const receivedBuf = Buffer.from(receivedHmac, "utf8");
+      const computedBuf = Buffer.from(computedHmac, "utf8");
+      
+      console.log(`[HMAC] Buffer lengths - Received: ${receivedBuf.length}, Computed: ${computedBuf.length}`);
+      
+      if (receivedBuf.length === computedBuf.length && 
+          timingSafeEqual(receivedBuf, computedBuf)) {
+        console.log(`[HMAC] ✅ SUCCESS: Validated with ${secretName}`);
+        return null; // Valid
+      } else {
+        console.log(`[HMAC] ❌ Mismatch with ${secretName}`);
+      }
+    } catch (error) {
+      console.error(`[HMAC] ❌ Error comparing with ${secretName}:`, error);
+      continue;
+    }
+  }
+
+  console.error(`[HMAC] ❌ FAILED: None of the ${secrets.length} secret(s) matched`);
+  return new Response("Unauthorized", { status: 401 });
 }
 
 /**

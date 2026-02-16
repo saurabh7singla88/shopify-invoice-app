@@ -7,6 +7,7 @@
 
 import type { ActionFunctionArgs } from "react-router";
 import { validateWebhookHmac, parseWebhookContext, jsonResponse, errorResponse } from "../services/webhookUtils.server";
+import { archiveWebhookPayload } from "../services/s3.server";
 import { saveProduct } from "../services/products.server";
 import { sessionStorage } from "../shopify.server";
 import { restResources } from "@shopify/shopify-api/rest/admin/2024-10";
@@ -25,6 +26,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     // ── Parse webhook context ────────────────────────────────────────────
     const { payload, shop } = parseWebhookContext(request, rawBody, "products/update");
+
+    // ── Archive webhook payload to S3 (data loss prevention) ─────────────
+    await archiveWebhookPayload(shop, "products/update", payload);
 
     console.log(`[Webhook] Product updated - ID: ${payload.id}, Title: ${payload.title}, Shop: ${shop}`);
 

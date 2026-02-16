@@ -15,6 +15,7 @@ import {
   jsonResponse,
   errorResponse,
 } from "../services/webhookUtils.server";
+import { archiveWebhookPayload } from "../services/s3.server";
 
 const TABLE_NAME = TABLE_NAMES.ORDERS;
 
@@ -31,11 +32,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // ── Parse webhook context ────────────────────────────────────────────
     const { payload, topic, shop } = parseWebhookContext(request, rawBody, "orders/create");
 
+    // ── Archive webhook payload to S3 (data loss prevention) ─────────────
+    await archiveWebhookPayload(shop, topic, payload, payload.name);
+
     console.log(`Webhook authenticated - Topic: ${topic}, Shop: ${shop}`);
     console.log(`Order ID: ${payload.id}, Name: ${payload.name}`);
     
     // Log complete webhook payload for debugging
-    // console.log(`[Webhook Payload] COMPLETE PAYLOAD:`, JSON.stringify(payload, null, 2));
+    console.log(`[Webhook Payload] COMPLETE PAYLOAD:`, JSON.stringify(payload, null, 2));
+    
+    // Log address details specifically
+    console.log(`[ADDRESS DEBUG] shipping_address:`, JSON.stringify(payload.shipping_address, null, 2));
+    console.log(`[ADDRESS DEBUG] billing_address:`, JSON.stringify(payload.billing_address, null, 2));
+    console.log(`[ADDRESS DEBUG] customer:`, JSON.stringify(payload.customer, null, 2));
     
     // Log specific fields we're interested in
     console.log(`[Webhook Payload] location_id: ${payload.location_id}`);
