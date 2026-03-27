@@ -81,6 +81,18 @@
       "Type": "String",
       "Default": "Products",
       "Description": "Name of the DynamoDB table for product HSN code cache"
+    },
+    "BillingTestMode": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": ["true", "false"],
+      "Description": "Set to 'true' for dev/review stores (test charges), 'false' for production (real charges). Dev stores only support test charges."
+    },
+    "BillingMode": {
+      "Type": "String",
+      "Default": "api",
+      "AllowedValues": ["api", "managed"],
+      "Description": "'api' = Billing API mode (app calls billing.request()); 'managed' = Shopify Managed Pricing mode (Shopify handles billing UI, no billing.request() calls). MUST match Partner Dashboard setting. Mutually exclusive."
     }
   },
   "Resources": {
@@ -285,6 +297,8 @@
         "Environment": {
           "Variables": {
             "NODE_ENV": { "Ref": "Environment" },
+            "BILLING_TEST_MODE": { "Ref": "BillingTestMode" },
+            "BILLING_MODE": { "Ref": "BillingMode" },
             "SHOPIFY_API_KEY": { "Ref": "ShopifyApiKey" },
             "SHOPIFY_API_SECRET": { "Ref": "ShopifyApiSecret" },
             "SHOPIFY_APP_URL": { "Ref": "ShopifyAppUrl" },

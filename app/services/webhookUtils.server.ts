@@ -61,8 +61,14 @@ export interface InvoiceGenerationResult {
  */
 export function validateWebhookHmac(request: Request, rawBody: string): Response | null {
   const receivedHmac = request.headers.get("x-shopify-hmac-sha256");
+  const shopDomain = request.headers.get("x-shopify-shop-domain");
+  const topic = request.headers.get("x-shopify-topic");
+  const webhookId = request.headers.get("x-shopify-webhook-id");
   
-  console.log(`[HMAC] Starting validation...`);
+  console.log(`[HMAC] ===== Webhook Request =====`);
+  console.log(`[HMAC] Shop: ${shopDomain}`);
+  console.log(`[HMAC] Topic: ${topic}`);
+  console.log(`[HMAC] Webhook ID: ${webhookId}`);
   console.log(`[HMAC] Received HMAC: ${receivedHmac?.substring(0, 20)}...`);
   console.log(`[HMAC] Request body length: ${rawBody.length} bytes`);
   
@@ -75,14 +81,14 @@ export function validateWebhookHmac(request: Request, rawBody: string): Response
   const secrets: Array<{ name: string; value: string }> = [];
   if (process.env.SHOPIFY_API_SECRET) {
     secrets.push({ name: "SHOPIFY_API_SECRET", value: process.env.SHOPIFY_API_SECRET });
-    console.log(`[HMAC] Found SHOPIFY_API_SECRET (${process.env.SHOPIFY_API_SECRET.substring(0, 8)}...)`);
+    console.log(`[HMAC] Found SHOPIFY_API_SECRET: "${process.env.SHOPIFY_API_SECRET.substring(0, 10)}...${process.env.SHOPIFY_API_SECRET.slice(-4)}"`);
   }
   
   // Check for numbered secrets (SHOPIFY_API_SECRET_1, SHOPIFY_API_SECRET_2, etc.)
   Object.keys(process.env).forEach((key) => {
     if (key.startsWith("SHOPIFY_API_SECRET_") && process.env[key]) {
       secrets.push({ name: key, value: process.env[key]! });
-      console.log(`[HMAC] Found ${key} (${process.env[key]!.substring(0, 8)}...)`);
+      console.log(`[HMAC] Found ${key}: "${process.env[key]!.substring(0, 10)}...${process.env[key]!.slice(-4)}"`);
     }
   });
 
@@ -97,13 +103,14 @@ export function validateWebhookHmac(request: Request, rawBody: string): Response
   for (let i = 0; i < secrets.length; i++) {
     const { name: secretName, value: secret } = secrets[i];
     
-    console.log(`[HMAC] Attempting validation with ${secretName}...`);
+    console.log(`[HMAC] Attempting validation with ${secretName}: "${secret.substring(0, 10)}...${secret.slice(-4)}"`);
     
     const computedHmac = createHmac("sha256", secret)
       .update(rawBody, "utf8")
       .digest("base64");
     
     console.log(`[HMAC] Computed HMAC: ${computedHmac.substring(0, 20)}...`);
+    console.log(`[HMAC] Received HMAC: ${receivedHmac.substring(0, 20)}...`);
 
     try {
       const receivedBuf = Buffer.from(receivedHmac, "utf8");

@@ -58,6 +58,5 @@ use_legacy_install_flow = false
 [auth]
 redirect_urls = [
   "https://b2d6rmict3.execute-api.us-east-1.amazonaws.com/auth/callback",
-  "https://b2d6rmict3.execute-api.us-east-1.amazonaws.com/auth/shopify/callback",
-  "https://b2d6rmict3.execute-api.us-east-1.amazonaws.com/api/auth"
+  "https://b2d6rmict3.execute-api.us-east-1.amazonaws.com/auth/shopify/callback"
 ]

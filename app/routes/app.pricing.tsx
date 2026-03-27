@@ -3,26 +3,37 @@
  * Display pricing plans and allow merchants to subscribe
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useActionData, useSubmit } from "react-router";
+import { useLoaderData, useActionData, useSubmit, useNavigation } from "react-router";
 import { authenticate } from "../shopify.server";
 import dynamodb, { getShopBillingPlan } from "../db.server";
 import { UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { TABLE_NAMES } from "../constants/tables";
+import { isBillingTestMode, isManagedPricingMode } from "../utils/billing-helpers";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { billing, session } = await authenticate.admin(request);
 
-  // Check current subscription status
-  const billingCheck = await billing.check({
-    plans: [
-      "Basic Monthly", "Basic Annual",
-      "Premium Monthly", "Premium Annual",
-      "Advanced Monthly", "Advanced Annual"
-    ],
-    isTest: process.env.NODE_ENV !== "production",
-  });
+  // Plan names must match Partner Dashboard exactly.
+  // Managed Pricing: single lowercase name per tier ("basic", "premium", "advanced").
+  // Billing API mode: separate monthly/annual plan names ("Basic Monthly", "Basic Annual", ...).
+  const managedMode = isManagedPricingMode();
+  const checkParams = {
+    plans: managedMode
+      ? ["basic", "premium", "advanced", "free"]
+      : ["Basic Monthly", "Basic Annual", "Premium Monthly", "Premium Annual", "Advanced Monthly", "Advanced Annual"],
+    isTest: isBillingTestMode(),
+  };
+  console.log("[Billing][check] → POST", `https://${session.shop}/admin/api/graphql.json`);
+  console.log("[Billing][check] params:", JSON.stringify(checkParams));
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const billingCheck = await (billing.check as any)(checkParams);
+
+  console.log("[Billing][check] ← response:", JSON.stringify({
+    appSubscriptions: billingCheck.appSubscriptions,
+  }));
 
   let currentPlan = "Free";
   let currentPlanDetails = null;
@@ -52,55 +63,173 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.error("Error updating billing plan in Shops table:", error);
   }
 
-  return { currentPlan, currentPlanDetails };
+  return {
+    currentPlan,
+    currentPlanDetails,
+    // ── Billing mode: "api" (Billing API) | "managed" (Shopify Managed Pricing) ─────
+    billingMode: process.env.BILLING_MODE || "api",
+    shop: session.shop,
+    apiKey: process.env.SHOPIFY_API_KEY || "",
+  };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { billing } = await authenticate.admin(request);
+  const { billing, session } = await authenticate.admin(request);
+
+  // ── Managed Pricing mode: no billing.request() — redirect to Shopify's plan page ──
+  // This action should normally not be triggered in managed mode (the client navigates
+  // directly), but this guard handles edge cases (e.g. JS disabled, direct POST).
+  if (isManagedPricingMode()) {
+    const shop = session.shop;
+    const apiKey = process.env.SHOPIFY_API_KEY || "";
+    return { managedPricingUrl: `https://${shop}/admin/charges/${apiKey}/pricing_plans` };
+  }
+
   const formData = await request.formData();
   const plan = formData.get("plan") as string;
+  const actionType = formData.get("action") as string;
 
   if (!plan) {
     return { error: "Plan parameter is required" };
   }
 
+  // Handle cancel subscription
+  if (actionType === "cancel") {
+    try {
+      await billing.cancel({
+        subscriptionId: formData.get("subscriptionId") as string,
+        isTest: isBillingTestMode(),
+        prorate: true,
+      });
+      return { cancelled: true };
+    } catch (error: any) {
+      console.error("[Billing] Error cancelling subscription:", error);
+      return { error: error?.message || "Failed to cancel subscription." };
+    }
+  }
+
+  // billing.request() always THROWS — it never returns.
+  // On success it throws a Response redirect (302) to Shopify's billing approval page.
+  // On failure it throws a real Error.
+  // We must catch the thrown Response, extract the Location URL, and return it
+  // so the client can navigate window.top (required to escape the Shopify embedded iframe).
+  // billing.request() always THROWS — it never returns.
+  // For embedded apps with token exchange, it throws Response(401) with header:
+  //   X-Shopify-API-Request-Failure-Reauthorize-Url: <billing-approval-url>
+  // App Bridge's fetch interceptor sees this 401 and navigates to the billing page.
+  // We must RE-THROW the Response so React Router passes it back to the client.
   try {
-    // Request billing approval from Shopify
-    // Note: Billing API only works in production or with approved public apps
-    const confirmationUrl = await billing.request({
+    const billingParams = {
       plan,
-      isTest: process.env.NODE_ENV !== "production",
+      isTest: isBillingTestMode(),
       returnUrl: `${process.env.SHOPIFY_APP_URL}/app/pricing`,
+    };
+    console.log("[Billing][request] → POST Shopify Admin GraphQL appSubscriptionCreate");
+    console.log("[Billing][request] params:", JSON.stringify(billingParams));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (billing.request as any)(billingParams);
+    console.log("[Billing][request] ← returned (unexpected):", result);
+    if (typeof result === "string") return { confirmationUrl: result };
+    return {};
+  } catch (error: any) {
+    if (error instanceof Response) {
+      const reauthUrl = error.headers.get("X-Shopify-API-Request-Failure-Reauthorize-Url");
+      const locationUrl = error.headers.get("Location");
+      console.log("[Billing][request] ← threw Response:", {
+        status: error.status,
+        reauthUrl,
+        locationUrl,
+        allHeaders: Object.fromEntries(error.headers.entries()),
+      });
+      if (reauthUrl) {
+        console.log("[Billing][request] ← confirmationUrl (reauth):", reauthUrl);
+        return { confirmationUrl: reauthUrl };
+      }
+      if (locationUrl) {
+        console.log("[Billing][request] ← confirmationUrl (location):", locationUrl);
+        return { confirmationUrl: locationUrl };
+      }
+      throw error;
+    }
+
+    // Real error — parse Shopify userErrors for a friendly message
+    const errorData: Array<{ field: string | null; message: string }> = error?.errorData || [];
+    console.error("[Billing] Real error requesting subscription:", {
+      message: error?.message,
+      errorData: JSON.stringify(errorData),
     });
 
-    // Return the URL for client-side redirect
-    return { confirmationUrl };
-  } catch (error) {
-    console.error("[Billing] Error requesting subscription:", error);
-    return { 
-      error: "Billing API not available in development mode. The billing API only works for published apps.",
+    // Detect common Shopify billing errors and surface actionable messages
+    const shopifyMsg = errorData[0]?.message || "";
+    let friendlyError = error?.message || "Failed to initiate billing. Please try again.";
+    if (shopifyMsg.includes("public distribution")) {
+      friendlyError = "Billing is not available for this app configuration. The app must be set to Public distribution in the Shopify Partner Dashboard before the Billing API can be used.";
+    } else if (shopifyMsg.includes("Return URL")) {
+      friendlyError = "Invalid return URL. Please check the SHOPIFY_APP_URL environment variable.";
+    } else if (shopifyMsg.includes("already exists") || shopifyMsg.includes("active subscription")) {
+      friendlyError = "An active subscription already exists for this store. Please cancel it before subscribing to a new plan.";
+    } else if (shopifyMsg.length > 0) {
+      friendlyError = shopifyMsg;
+    }
+
+    return {
+      error: friendlyError,
     };
   }
 };
 
 export default function Pricing() {
-  const { currentPlan, currentPlanDetails } = useLoaderData<typeof loader>();
+  const { currentPlan, currentPlanDetails, billingMode, shop, apiKey } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
+  const navigation = useNavigation();
   const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
+  // Tracks which plan button the user just clicked, for immediate loading feedback.
+  // loadingPlan covers managed mode (window.top navigation — no form submission)
+  // and API mode before navigation.state becomes "submitting".
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
 
-  // Handle billing confirmation redirect
+  // ── Managed Pricing mode helpers ─────────────────────────────────────────────
+  const isManagedMode = billingMode === "managed";
+  // Direct URL to Shopify's hosted plan selection page
+  const managedPricingUrl = isManagedMode
+    ? `https://${shop}/admin/charges/${apiKey}/pricing_plans`
+    : null;
+
+  // Determine which plan is currently being submitted
+  const isSubmitting = navigation.state === "submitting" || navigation.state === "loading";
+  const submittingPlan = navigation.formData?.get("plan") as string | undefined;
+
+  // Handle billing confirmation/managed pricing redirect.
+  // Covers: confirmationUrl from Billing API mode, managedPricingUrl safety net from action.
   useEffect(() => {
-    if (actionData && 'confirmationUrl' in actionData && actionData.confirmationUrl) {
-      window.open(actionData.confirmationUrl, "_top");
+    const data = actionData as any;
+    const redirectUrl = data?.confirmationUrl || data?.managedPricingUrl;
+    if (redirectUrl) {
+      if (window.top) {
+        window.top.location.href = redirectUrl;
+      } else {
+        window.location.href = redirectUrl;
+      }
     }
   }, [actionData]);
 
-  const handleSelectPlan = (planName: string) => {
+  const handleSelectPlan = useCallback((planName: string) => {
+    setLoadingPlan(planName);
+    if (isManagedMode && managedPricingUrl) {
+      // Managed Pricing: navigate directly — no server round trip needed
+      if (window.top) {
+        window.top.location.href = managedPricingUrl;
+      } else {
+        window.location.href = managedPricingUrl;
+      }
+      return;
+    }
+    // Billing API mode: submit form to trigger billing.request() on server
     const formData = new FormData();
     formData.append('plan', planName);
     submit(formData, { method: "post" });
-  };
+  }, [isManagedMode, managedPricingUrl, submit]);
 
   const plans = [
     {
@@ -140,10 +269,13 @@ export default function Pricing() {
         "Multiple templates",
         "Priority Support",
       ],
+      // API mode plan names (billing.request needs exact name)
       planNames: {
         monthly: "Basic Monthly",
         annual: "Basic Annual",
       },
+      // Managed Pricing mode plan name (matches Partner Dashboard exactly)
+      managedPlanName: "basic",
     },
     {
       id: "premium",
@@ -167,6 +299,7 @@ export default function Pricing() {
         monthly: "Premium Monthly",
         annual: "Premium Annual",
       },
+      managedPlanName: "premium",
     },
     {
       id: "advanced",
@@ -188,39 +321,84 @@ export default function Pricing() {
         monthly: "Advanced Monthly",
         annual: "Advanced Annual",
       },
+      managedPlanName: "advanced",
     },
   ];
 
+  // Case-insensitive comparison — works with both Billing API names ("Basic Monthly")
+  // and Managed Pricing names ("basic").
   const isCurrentPlan = (planName?: string) => {
-    if (!planName) return currentPlan === "Free";
-    return currentPlan === planName;
+    if (!planName) return currentPlan.toLowerCase() === "free";
+    return currentPlan.toLowerCase() === planName.toLowerCase();
   };
 
   return (
     <s-page heading="Pricing & Plans">
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
 
-        {currentPlanDetails && (
+        {/* Current plan banner */}
+        <div style={{
+          marginBottom: '24px',
+          padding: '16px',
+          backgroundColor: currentPlan === 'Free' ? '#f9fafb' : '#f0f9ff',
+          border: `1px solid ${currentPlan === 'Free' ? '#e5e7eb' : '#bae6fd'}`,
+          borderRadius: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px'
+        }}>
+          <span style={{ fontSize: '20px' }}>{currentPlan === 'Free' ? '📋' : '✓'}</span>
+          <div>
+            <div style={{ fontWeight: '600', color: currentPlan === 'Free' ? '#374151' : '#0c4a6e' }}>
+              Current Plan: {currentPlan}
+            </div>
+            {currentPlanDetails && (
+              <div style={{ fontSize: '13px', color: '#0369a1', marginTop: '4px' }}>
+                {currentPlanDetails.status === 'ACTIVE' && !currentPlanDetails.test && 'Active subscription'}
+                {currentPlanDetails.test && 'Test subscription (no charge)'}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Managed Pricing mode info banner */}
+        {isManagedMode && (
           <div style={{
             marginBottom: '24px',
             padding: '16px',
-            backgroundColor: '#f0f9ff',
-            border: '1px solid #bae6fd',
+            backgroundColor: '#eff6ff',
+            border: '1px solid #bfdbfe',
             borderRadius: '8px',
+            fontSize: '14px',
+            color: '#1e40af',
             display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
+            alignItems: 'flex-start',
+            gap: '10px',
           }}>
-            <span style={{ fontSize: '24px' }}>✓</span>
+            <span style={{ fontSize: '18px', flexShrink: 0 }}>🛒</span>
             <div>
-              <div style={{ fontWeight: '600', color: '#0c4a6e' }}>
-                Current Plan: {currentPlan}
-              </div>
-              <div style={{ fontSize: '13px', color: '#0369a1', marginTop: '4px' }}>
-                {currentPlanDetails.status === "ACTIVE" && !currentPlanDetails.test && "Active subscription"}
-                {currentPlanDetails.test && "Test mode"}
+              <strong>Managed by Shopify</strong>
+              <div style={{ marginTop: '4px', lineHeight: '1.5' }}>
+                Your subscription is managed directly through Shopify.
+                Click any paid plan button to open Shopify's plan management page.
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Error banner */}
+        {'error' in (actionData || {}) && (actionData as any)?.error && (
+          <div style={{
+            marginBottom: '24px',
+            padding: '16px',
+            backgroundColor: '#fef2f2',
+            border: '1px solid #fecaca',
+            borderRadius: '8px',
+            color: '#991b1b',
+            fontSize: '14px',
+          }}>
+            ⚠️ {(actionData as any).error}
           </div>
         )}
 
@@ -274,7 +452,10 @@ export default function Pricing() {
         }}>
           {plans.map((plan) => {
             const price = billingCycle === "monthly" ? plan.monthlyPrice : plan.annualPrice;
-            const planName = plan.planNames ? plan.planNames[billingCycle] : undefined;
+            // In managed mode use the single plan name; in API mode use monthly/annual variant
+            const planName = isManagedMode
+              ? (plan as any).managedPlanName as string | undefined
+              : (plan.planNames ? plan.planNames[billingCycle] : undefined);
             const isCurrent = isCurrentPlan(planName);
 
             return (
@@ -368,23 +549,65 @@ export default function Pricing() {
                   ))}
                 </div>
 
-                <button
-                  onClick={() => planName && handleSelectPlan(planName)}
-                  disabled={isCurrent || !planName}
-                  style={{
-                    padding: '12px',
-                    backgroundColor: isCurrent ? '#e5e7eb' : plan.popular ? '#2563eb' : 'white',
-                    color: isCurrent ? '#6b7280' : plan.popular ? 'white' : '#2563eb',
-                    border: plan.popular ? 'none' : '2px solid #2563eb',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    cursor: isCurrent || !planName ? 'not-allowed' : 'pointer',
-                    width: '100%',
-                  }}
-                >
-                  {isCurrent ? 'Current Plan' : plan.id === 'free' ? 'Free Forever' : 'Start 30-Day Free Trial'}
-                </button>
+                {(() => {
+                  const isThisLoading = loadingPlan === planName || (isSubmitting && submittingPlan === planName);
+                  const isAnyLoading = loadingPlan !== null || isSubmitting;
+                  return (
+                    <button
+                      onClick={() => planName && !isAnyLoading && !isCurrent && handleSelectPlan(planName)}
+                      disabled={isCurrent || !planName || isAnyLoading}
+                      style={{
+                        padding: '12px',
+                        backgroundColor: isCurrent
+                          ? '#e5e7eb'
+                          : isThisLoading
+                            ? '#1d4ed8'
+                            : plan.popular
+                              ? '#2563eb'
+                              : 'white',
+                        color: isCurrent
+                          ? '#6b7280'
+                          : isThisLoading || plan.popular
+                            ? 'white'
+                            : '#2563eb',
+                        border: plan.popular || isThisLoading ? 'none' : '2px solid #2563eb',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: 600,
+                        cursor: isCurrent || !planName || isAnyLoading ? 'not-allowed' : 'pointer',
+                        width: '100%',
+                        opacity: isAnyLoading && !isThisLoading ? 0.5 : 1,
+                        transition: 'background-color 0.15s ease, opacity 0.15s ease',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                      }}
+                    >
+                      {isThisLoading && (
+                        <span style={{
+                          display: 'inline-block',
+                          width: '14px',
+                          height: '14px',
+                          border: '2px solid rgba(255,255,255,0.4)',
+                          borderTopColor: 'white',
+                          borderRadius: '50%',
+                          animation: 'spin 0.7s linear infinite',
+                          flexShrink: 0,
+                        }} />
+                      )}
+                      {isThisLoading
+                        ? 'Redirecting to Shopify...'
+                        : isCurrent
+                          ? '✓ Current Plan'
+                          : plan.id === 'free'
+                            ? 'Free Forever'
+                            : isManagedMode
+                              ? 'Select Plan'
+                              : 'Start 30-Day Free Trial'}
+                    </button>
+                  );
+                })()}
               </div>
             );
           })}

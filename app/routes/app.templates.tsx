@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { useLoaderData, useNavigate, useSearchParams, Link, Outlet, useSubmit } from "react-router";
 import { authenticate } from "../shopify.server";
-import { hasMultipleTemplates } from "../utils/billing-helpers";
+import { hasMultipleTemplates, isBillingTestMode, isManagedPricingMode } from "../utils/billing-helpers";
 import { getShopBillingPlan } from "../db.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { getShopSelectedTemplate, updateShopSelectedTemplate } from "../services/dynamodb.server";
@@ -29,9 +29,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { billing, session } = await authenticate.admin(request);
   
   // Check if user has Premium or Advanced plan for multiple templates
-  const billingCheck = await billing.check({
-    plans: ["Premium Monthly", "Premium Annual", "Advanced Monthly", "Advanced Annual"],
-    isTest: process.env.NODE_ENV !== "production",
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const billingCheck = await (billing.check as any)({
+    plans: isManagedPricingMode()
+      ? ["premium", "advanced"]
+      : ["Premium Monthly", "Premium Annual", "Advanced Monthly", "Advanced Annual"],
+    isTest: isBillingTestMode(),
   });
   
   let currentPlan = "Free";

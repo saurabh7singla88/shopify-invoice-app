@@ -5,6 +5,7 @@
  */
 
 import { createRequestHandler } from "react-router";
+import { randomUUID } from "crypto";
 
 let handlerPromise;
 
@@ -19,9 +20,44 @@ async function getHandler() {
 }
 
 /**
+ * Structured logging helper
+ */
+function logRequest(requestId, data) {
+  console.log(JSON.stringify({
+    type: "REQUEST",
+    requestId,
+    timestamp: new Date().toISOString(),
+    ...data
+  }));
+}
+
+function logResponse(requestId, data) {
+  console.log(JSON.stringify({
+    type: "RESPONSE",
+    requestId,
+    timestamp: new Date().toISOString(),
+    ...data
+  }));
+}
+
+function logError(requestId, error, context = {}) {
+  console.error(JSON.stringify({
+    type: "ERROR",
+    requestId,
+    timestamp: new Date().toISOString(),
+    error: {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    },
+    ...context
+  }));
+}
+
+/**
  * Convert API Gateway event to a standard Request object
  */
-function createRequest(event) {
+function createRequest(event, requestId) {
   const {
     headers = {},
     requestContext = {},
@@ -37,10 +73,20 @@ function createRequest(event) {
   
   const url = `${protocol}://${host}${path}${queryString ? `?${queryString}` : ""}`;
   
-  console.log("Processing Request:", {
-    url,
+  // Extract shop from query params or headers
+  const shop = new URL(url).searchParams.get('shop') || headers['x-shopify-shop-domain'] || null;
+  const topic = headers['x-shopify-topic'] || null;
+  
+  logRequest(requestId, {
     method: event.requestContext?.http?.method || event.httpMethod || "GET",
-    headersKeys: Object.keys(headers),
+    url,
+    path,
+    shop,
+    topic,
+    hasAuth: !!(headers['authorization'] || headers['Authorization']),
+    hasCookies: !!(event.cookies?.length || headers['cookie'] || headers['Cookie']),
+    userAgent: headers['user-agent'] || headers['User-Agent'],
+    sourceIp: requestContext.http?.sourceIp || headers['x-forwarded-for'],
   });
 
   // Convert headers to Headers object
@@ -54,21 +100,10 @@ function createRequest(event) {
   // Handle cookies (API Gateway Payload 2.0)
   if (event.cookies && Array.isArray(event.cookies)) {
     requestHeaders.append("Cookie", event.cookies.join("; "));
-    console.log("Cookies found in event:", event.cookies.length);
-  } else {
-    // Fallback: Check if cookies were in the headers (common in local testing or different payload versions)
-    const headerCookie = headers['cookie'] || headers['Cookie'];
-    if (headerCookie) {
-       console.log("Cookies found in headers (fallback)");
-       // Note: They were likely added in the loop above, but we log for confirmation
-    } else {
-       console.log("No cookies in event or headers");
-    }
   }
-
-  // Debug Authorization Header
-  const authHeader = headers['authorization'] || headers['Authorization'];
-  console.log("Authorization Header Present:", !!authHeader);
+  
+  // Add request ID to headers for downstream logging
+  requestHeaders.append("x-request-id", requestId);
 
   // Handle body
   let requestBody = null;
@@ -153,6 +188,7 @@ async function createResponse(response) {
  * Main Lambda handler
  */
 export const lambdaHandler = async (event, context) => {
+  const requestId = randomUUID();
   try {
     console.log("Lambda Event:", JSON.stringify(event, null, 2));
 
@@ -205,7 +241,7 @@ export const lambdaHandler = async (event, context) => {
           isBase64Encoded: true,
         };
       } catch (err) {
-        console.error('Error serving static file from S3:', err);
+        logError(requestId, err, { context: 'S3 static file serving' });
         return {
           statusCode: 404,
           body: 'File not found',
@@ -214,7 +250,7 @@ export const lambdaHandler = async (event, context) => {
     }
 
     // Create standard Request from API Gateway event
-    const request = createRequest(event);
+    const request = createRequest(event, requestId);
 
     // Handle the request with React Router
     const handler = await getHandler();
@@ -223,33 +259,19 @@ export const lambdaHandler = async (event, context) => {
     // Convert Response to API Gateway format
     const apiGatewayResponse = await createResponse(response);
 
-    console.log("Response Status:", apiGatewayResponse.statusCode);
-    if (apiGatewayResponse.cookies && apiGatewayResponse.cookies.length > 0) {
-      console.log("Outgoing Cookies (Set-Cookie):", apiGatewayResponse.cookies.length);
-      apiGatewayResponse.cookies.forEach((c, i) => {
-        const cookieParts = c.split(';');
-        console.log(`Cookie ${i}: ${cookieParts[0]}`);
-        // Log important attributes
-        const attrs = cookieParts.slice(1).map(p => p.trim()).filter(p => 
-          p.toLowerCase().startsWith('samesite') || 
-          p.toLowerCase().startsWith('secure') || 
-          p.toLowerCase().startsWith('httponly')
-        );
-        if (attrs.length > 0) console.log(`  Attributes: ${attrs.join(', ')}`);
-      });
-    } else {
-      console.log("No Outgoing Cookies set.");
-    }
-    
-    if (apiGatewayResponse.headers['Location'] || apiGatewayResponse.headers['location']) {
-         const location = apiGatewayResponse.headers['Location'] || apiGatewayResponse.headers['location'];
-         console.log("Redirect Location:", location.substring(0, 150) + (location.length > 150 ? '...' : ''));
-    }
+    logResponse(requestId, {
+      statusCode: apiGatewayResponse.statusCode,
+      hasCookies: !!(apiGatewayResponse.cookies?.length),
+      cookieCount: apiGatewayResponse.cookies?.length || 0,
+      isRedirect: !!(apiGatewayResponse.headers?.Location || apiGatewayResponse.headers?.location),
+      redirectTo: apiGatewayResponse.headers?.Location || apiGatewayResponse.headers?.location,
+      bodyLength: apiGatewayResponse.body?.length || 0,
+      contentType: apiGatewayResponse.headers?.['Content-Type'] || apiGatewayResponse.headers?.['content-type'],
+    });
 
-    console.log("Response Body Length:", apiGatewayResponse.body?.length || 0);
     return apiGatewayResponse;
   } catch (error) {
-    console.error("Lambda Handler Error:", error);
+    logError(requestId, error, { context: 'Lambda handler top-level' });
     return {
       statusCode: 500,
       headers: {
@@ -258,6 +280,7 @@ export const lambdaHandler = async (event, context) => {
       body: JSON.stringify({
         error: "Internal Server Error",
         message: error.message,
+        requestId,
       }),
     };
   }
