@@ -5,7 +5,7 @@ import type {
 } from "react-router";
 import { useLoaderData, useSearchParams, Link } from "react-router";
 import { authenticate } from "../shopify.server";
-import { getOrderLimit, getPlanTier, isBillingTestMode, isManagedPricingMode } from "../utils/billing-helpers";
+import { getOrderLimit, getPlanTier, isBillingTestMode } from "../utils/billing-helpers";
 import { getShopBillingPlan } from "../db.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { QueryCommand } from "@aws-sdk/lib-dynamodb";
@@ -22,9 +22,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // Check current billing plan for order limits
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const billingCheck = await (billing.check as any)({
-    plans: isManagedPricingMode()
-      ? ["basic", "premium", "advanced", "free"]
-      : ["Basic Monthly", "Basic Annual", "Premium Monthly", "Premium Annual", "Advanced Monthly", "Advanced Annual"],
+    plans: ["Free", "Basic", "Premium", "Advanced", "Basic Monthly", "Basic Annual", "Premium Monthly", "Premium Annual", "Advanced Monthly", "Advanced Annual"],
     isTest: isBillingTestMode(),
   });
   

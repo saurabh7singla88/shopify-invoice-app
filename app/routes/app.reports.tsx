@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useSearchParams, useFetcher, Link } from "react-router";
 import { authenticate } from "../shopify.server";
-import { hasGSTRAccess, isBillingTestMode, isManagedPricingMode } from "../utils/billing-helpers";
+import { hasGSTRAccess, isBillingTestMode } from "../utils/billing-helpers";
 import { getShopBillingPlan } from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -16,9 +16,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // Check if user has Basic or higher plan for GSTR reports
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const billingCheck = await (billing.check as any)({
-    plans: isManagedPricingMode()
-      ? ["basic", "premium", "advanced"]
-      : ["Basic Monthly", "Basic Annual", "Premium Monthly", "Premium Annual", "Advanced Monthly", "Advanced Annual"],
+    plans: ["Free", "Basic", "Premium", "Advanced", "Basic Monthly", "Basic Annual", "Premium Monthly", "Premium Annual", "Advanced Monthly", "Advanced Annual"],
     isTest: isBillingTestMode(),
   });
   
