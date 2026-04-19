@@ -14,12 +14,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
               node {
                 id
                 topic
-                endpoint {
-                  __typename
-                  ... on WebhookHttpEndpoint {
-                    callbackUrl
-                  }
-                }
+                uri
               }
             }
           }

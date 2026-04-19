@@ -888,7 +888,7 @@ export default function Index() {
                   Previous
                 </button>
                 
-                <s-text variant="body-sm">
+                <s-text>
                   Page {currentPage} of {totalPages}
                 </s-text>
 

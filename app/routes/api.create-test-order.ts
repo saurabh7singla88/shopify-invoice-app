@@ -77,7 +77,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     // Use GraphQL to create order (more flexible)
     const orderCreateMutation = `
-      mutation orderCreate($order: OrderInput!) {
+      mutation orderCreate($order: OrderCreateOrderInput!) {
         orderCreate(order: $order) {
           order {
             id
